@@ -109,7 +109,7 @@
       <div class="box">
         <h2>使用说明</h2>
         <p class="hint">
-          <b>插入照片：</b>将图片拖入页面，或使用 <kbd>⌘V</kbd> 粘贴。<br>
+          <b>插入照片：</b>将图片拖入页面，或使用 <kbd>⌘V</kbd> 粘贴。PNG 等格式的透明背景会完整保留，透明区域可点击穿透至下层。<br>
           <b>调整元素：</b>拖动可移动位置；拖动四角可等比缩放；拖动上方圆点可旋转。<br>
           <b>裁切照片：</b>双击照片进入裁切模式，裁切范围以外的部分以半透明显示。<br>
           <b>编辑文字：</b>双击文字框即可修改内容。<br>
@@ -284,21 +284,44 @@ function updateUndo(){ $('undo').disabled = hIdx <= 0; $('redo').disabled = hIdx
 function loadImg(blob){ return new Promise((res, rej) => {
   const url = URL.createObjectURL(blob), im = new Image();
   im.onload = () => res(im); im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('decode')); }; im.src = url; }); }
+const alphaMasks = new Map();   // id -> {w, h, a: Uint8Array} for images with transparency
+function buildMask(id, im){
+  const s = Math.min(1, 256 / Math.max(im.naturalWidth, im.naturalHeight));
+  const w = Math.max(1, Math.round(im.naturalWidth*s)), h = Math.max(1, Math.round(im.naturalHeight*s));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data, a = new Uint8Array(w*h); let any = false;
+  for (let i = 0; i < a.length; i++) { a[i] = d[i*4 + 3]; if (a[i] < 250) any = true; }
+  if (any) alphaMasks.set(id, { w, h, a }); else alphaMasks.delete(id);
+}
+async function registerImage(id, blob){
+  const im = await loadImg(blob);
+  imgBlobs.set(id, blob); imgCache.set(id, im);
+  if (blob.type !== 'image/jpeg') { try { buildMask(id, im); } catch (e) {} }
+  return im;
+}
 async function importImage(file){
   const im = await loadImg(file);
   const s = Math.min(1, 2400 / Math.max(im.naturalWidth, im.naturalHeight));
   const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth*s); c.height = Math.round(im.naturalHeight*s);
-  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height);
+  const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, c.width, c.height);
   URL.revokeObjectURL(im.src);
-  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
-  const id = uid(); imgBlobs.set(id, blob); imgCache.set(id, await loadImg(blob));
+  // keep transparency: check alpha unless the source is a JPEG (which never has any)
+  let hasAlpha = false;
+  if (!/jpe?g/i.test(file.type)) {
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    for (let i = 3; i < d.length; i += 16) if (d[i] < 250) { hasAlpha = true; break; }
+  }
+  if (!hasAlpha) { x.globalCompositeOperation = 'destination-over'; x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); }
+  const blob = await new Promise(r => c.toBlob(r, hasAlpha ? 'image/png' : 'image/jpeg', 0.9));
+  const id = uid(); await registerImage(id, blob);
   store.put('img', id, blob).catch(() => {});
   return id;
 }
 async function ensureImage(id){
   if (imgCache.has(id)) return;
   const b = await store.get('img', id);
-  if (b) { imgBlobs.set(id, b); imgCache.set(id, await loadImg(b)); }
+  if (b) await registerImage(id, b);
 }
 function usedImageIds(){ const s = new Set(); state.pages.forEach(p => p.els.forEach(e => e.type === 'image' && s.add(e.img))); return s; }
 
@@ -500,10 +523,23 @@ function hitHandle(el, pt, cssK, crop){
   for (const hd of handleList(el, hs, crop)) if (Math.abs(lp.x - hd.x) <= tol && Math.abs(lp.y - hd.y) <= tol) return hd;
   return null;
 }
+function opaqueAt(el, lp){
+  const m = alphaMasks.get(el.img), im = imgCache.get(el.img); if (!m || !im) return true;
+  const u = (lp.x + el.w/2 - el.ox) / el.s, v = (lp.y + el.h/2 - el.oy) / el.s;   // natural-pixel coords
+  const cx = Math.floor(u / im.naturalWidth * m.w), cy = Math.floor(v / im.naturalHeight * m.h);
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {        // small tolerance
+    const x = cx + dx, y = cy + dy;
+    if (x >= 0 && y >= 0 && x < m.w && y < m.h && m.a[y*m.w + x] > 24) return true;
+  }
+  return false;
+}
 function hitEl(page, pt){
   for (let i = page.els.length - 1; i >= 0; i--) {
     const el = page.els[i], lp = toLocal(el, pt), h = elH(el);
-    if (Math.abs(lp.x) <= el.w/2 + 0.5 && Math.abs(lp.y) <= h/2 + 0.5) return el;
+    if (Math.abs(lp.x) <= el.w/2 + 0.5 && Math.abs(lp.y) <= h/2 + 0.5) {
+      if (el.type === 'image' && !opaqueAt(el, lp)) continue;   // click through transparent areas
+      return el;
+    }
   }
   return null;
 }
@@ -1039,7 +1075,7 @@ $('projInput').addEventListener('change', async e => {
   try {
     const data = JSON.parse(await f.text());
     if (!data.state || data.state.v !== 2 || !Array.isArray(data.state.pages)) throw new Error('bad');
-    for (const [id, d] of Object.entries(data.images || {})) { const b = dataURLToBlob(d); imgBlobs.set(id, b); imgCache.set(id, await loadImg(b)); store.put('img', id, b).catch(() => {}); }
+    for (const [id, d] of Object.entries(data.images || {})) { const b = dataURLToBlob(d); await registerImage(id, b); store.put('img', id, b).catch(() => {}); }
     state = data.state; sel = { page: 0, el: null }; cropMode = false;
     rebuildSheets(); syncPanel(); commit(); toast('已打开项目');
   } catch (err) { toast('这个文件打不开'); }
