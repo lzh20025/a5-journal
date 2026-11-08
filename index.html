@@ -41,7 +41,7 @@
     box-shadow:0 1px 2px rgba(0,0,0,.06),0 6px 20px rgba(60,40,20,.08);touch-action:none}
   canvas.sheet.drop{outline:3px dashed var(--accent);outline-offset:4px}
   .editor{position:absolute;margin:0;padding:0;border:0;outline:1.5px dashed var(--accent);outline-offset:2px;
-    background:rgba(255,255,255,.9);resize:none;overflow:hidden;white-space:pre-wrap;word-break:break-word;transform-origin:center center;z-index:3}
+    background:rgba(255,255,255,.9);resize:none;overflow:hidden;white-space:pre-wrap;word-break:break-word;text-autospace:ideograph-alpha ideograph-numeric;transform-origin:center center;z-index:3}
   aside{position:sticky;top:64px;align-self:start;background:var(--panel);border:1px solid var(--line);
     border-radius:12px;padding:14px;max-height:calc(100vh - 80px);overflow:auto}
   @media (max-width:900px){aside{position:static;max-height:none}}
@@ -329,12 +329,26 @@ function usedImageIds(){ const s = new Set(); state.pages.forEach(p => p.els.for
 const REF = 10, mctx = document.createElement('canvas').getContext('2d');
 const NO_START = '，。、！？；：）」』】》,.!?;:)…—~～%';
 const textFont = (el, px) => `${el.italic ? 'italic ' : ''}${el.bold ? 700 : 400} ${px}px ${FONTS[el.font] || FONTS.sans}`;
+/* 中英文之间自动加 1/8 em 的小间隔（同 CSS text-autospace） */
+const AUTOSPACE = 0.125;
+const IS_CJK = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
+const IS_ALNUM = /[\p{sc=Latin}\p{sc=Greek}\p{sc=Cyrillic}0-9]/u;
+const needGap = (a, b) => (IS_CJK.test(a) && IS_ALNUM.test(b)) || (IS_ALNUM.test(a) && IS_CJK.test(b));
+function autoRuns(s){
+  const runs = []; let cur = '', prev = '';
+  for (const ch of s) { if (prev && needGap(prev, ch)) { runs.push(cur); cur = ''; } cur += ch; prev = ch; }
+  runs.push(cur); return runs;
+}
+function spacedWidth(ctx, s, em){
+  const runs = autoRuns(s);
+  return runs.reduce((w, r) => w + ctx.measureText(r).width, 0) + (runs.length - 1) * em * AUTOSPACE;
+}
 const wrapCache = new Map();
 function wrapLines(el){
   const key = [el.text, el.font, el.bold, el.italic, el.size, el.w].join('\u0001');
   if (wrapCache.has(key)) return wrapCache.get(key);
   mctx.font = textFont(el, el.size * REF);
-  const maxW = el.w * REF, W = s => mctx.measureText(s).width, out = [];
+  const maxW = el.w * REF, W = s => spacedWidth(mctx, s, el.size * REF), out = [];
   for (const para of (el.text || '').replace(/\r/g, '').split('\n')) {
     if (para === '') { out.push(''); continue; }
     const tokens = para.match(/[A-Za-z0-9À-ɏ'’\-_.@#/]+|\s+|[\s\S]/gu) || [];
@@ -375,10 +389,15 @@ function drawImageEl(ctx, k, el, ghost){
 function drawTextEl(ctx, k, el){
   const lines = wrapLines(el), h = elH(el);
   ctx.fillStyle = el.color; ctx.font = textFont(el, el.size*k); ctx.textBaseline = 'alphabetic';
-  ctx.textAlign = el.align;
-  const x0 = el.align === 'center' ? 0 : el.align === 'right' ? el.w/2 : -el.w/2;
-  lines.forEach((ln, i) => ctx.fillText(ln, x0*k, (-h/2 + el.size*(el.lh - 1)/2 + el.size*0.88 + i*el.size*el.lh)*k));
   ctx.textAlign = 'left';
+  const x0 = el.align === 'center' ? 0 : el.align === 'right' ? el.w/2 : -el.w/2, gap = el.size*k*AUTOSPACE;
+  lines.forEach((ln, i) => {
+    const y = (-h/2 + el.size*(el.lh - 1)/2 + el.size*0.88 + i*el.size*el.lh)*k;
+    const runs = autoRuns(ln), ws = runs.map(r => ctx.measureText(r).width);
+    const total = ws.reduce((a, b) => a + b, 0) + (runs.length - 1)*gap;
+    let x = x0*k - (el.align === 'center' ? total/2 : el.align === 'right' ? total : 0);
+    runs.forEach((r, j) => { ctx.fillText(r, x, y); x += ws[j] + gap; });
+  });
 }
 function drawCard(ctx, k, j, pi, opts){
   const p = state.pages[pi], ox = CARD_X[j], oy = CARD_Y;
