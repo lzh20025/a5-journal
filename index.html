@@ -73,6 +73,12 @@
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   #busy{position:fixed;inset:0;background:rgba(243,241,236,.7);display:none;align-items:center;justify-content:center;z-index:30;font-size:14px}
   #busy.show{display:flex}
+  .modal{position:fixed;inset:0;background:rgba(42,40,38,.35);display:flex;align-items:center;justify-content:center;z-index:25;padding:16px}
+  .dlg{background:var(--panel);border-radius:14px;padding:18px;width:min(400px,100%);max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.18)}
+  .dlg h3{margin:0 0 14px;font-size:15px}
+  .dlg .seg{display:flex}
+  .dlg .seg button{flex:1}
+  .field label.check{justify-content:flex-start;gap:6px;align-items:center;color:var(--ink);font-size:13px;cursor:pointer}
   .hidden{display:none!important}
 </style>
 </head>
@@ -89,7 +95,7 @@
   <span class="status" id="saveStatus"></span>
   <button class="btn" id="openProj">打开项目</button>
   <button class="btn" id="saveProj">保存项目文件</button>
-  <button class="btn primary" id="exportPdf">导出打印 PDF</button>
+  <button class="btn primary" id="exportPdf">导出打印 PDF…</button>
 </header>
 
 <main>
@@ -194,6 +200,23 @@
 <input type="file" id="imgInput" accept="image/*" multiple class="hidden">
 <input type="file" id="replaceInput" accept="image/*" class="hidden">
 <input type="file" id="projInput" accept=".json,application/json" class="hidden">
+<div id="exportDlg" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+  <div class="dlg">
+    <h3 id="exportTitle">导出 PDF</h3>
+    <div class="field"><label>方式</label>
+      <span class="seg" id="exMode"><button data-v="flat">压平 · 整页图片</button><button data-v="vector">不压平 · 文字矢量</button></span>
+      <p class="hint" id="exModeHint" style="margin-top:6px"></p></div>
+    <div class="field"><label>清晰度 <span id="exScaleVal"></span></label>
+      <span class="seg" id="exScale"><button data-v="1">1×</button><button data-v="2">2×</button><button data-v="3">3×</button><button data-v="4">4×</button></span></div>
+    <div class="field"><label>图片格式</label>
+      <span class="seg" id="exFmt"><button data-v="jpeg">JPEG</button><button data-v="png">PNG 无损</button></span></div>
+    <div class="field" id="exQField"><label>JPEG 质量 <span id="exQVal"></span></label><input type="range" id="exQ" min="60" max="100" step="1"></div>
+    <div class="field"><label class="check"><input type="checkbox" id="exMarks"> 包含裁切线和底部提示文字</label></div>
+    <div class="actions" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn" id="exCancel">取消</button><button class="btn primary" id="exGo">导出</button>
+    </div>
+  </div>
+</div>
 <div id="toast"></div>
 <div id="busy"><span id="busyText">正在处理…</span></div>
 
@@ -478,25 +501,33 @@ function drawSelection(ctx, k, el, opts){
   }
   ctx.restore();
 }
+const SHEET_HINT = '打印选「实际大小 / 100%」· 沿灰色细线裁切';
+function cropMarkSegs(present){
+  const segs = [];
+  present.forEach((ok, j) => {
+    if (!ok) return;
+    const x0 = CARD_X[j], x1 = x0 + CARD_W, y0 = CARD_Y, y1 = CARD_Y + CARD_H;
+    for (const x of [x0, x1]) { segs.push([x, y0-1.5, x, y0-6.5], [x, y1+1.5, x, y1+6.5]); }
+    const leftOuter = !(j === 1 && present[0]), rightOuter = !(j === 0 && present[1]);
+    for (const y of [y0, y1]) { if (leftOuter) segs.push([x0-1.5, y, x0-7, y]); if (rightOuter) segs.push([x1+1.5, y, x1+7, y]); }
+  });
+  return segs;
+}
 function drawSheet(ctx, k, si, opts){
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, SHEET_W*k, SHEET_H*k);
-  const present = [0,1].map(j => !!state.pages[si*2 + j]);
+  const present = [0,1].map(j => !!state.pages[si*2 + j]), marks = opts.marks !== false;
   // cut lines under content
   ctx.strokeStyle = '#bdbdbd'; ctx.lineWidth = Math.max(0.15*k, 0.5);
-  present.forEach((ok, j) => ok && ctx.strokeRect(CARD_X[j]*k, CARD_Y*k, CARD_W*k, CARD_H*k));
+  if (marks) present.forEach((ok, j) => ok && ctx.strokeRect(CARD_X[j]*k, CARD_Y*k, CARD_W*k, CARD_H*k));
   present.forEach((ok, j) => ok && drawCard(ctx, k, j, si*2 + j, opts));
   // crop marks
   ctx.strokeStyle = '#555'; ctx.lineWidth = Math.max(0.2*k, 0.6);
   const line = (x1,y1,x2,y2) => { ctx.beginPath(); ctx.moveTo(x1*k,y1*k); ctx.lineTo(x2*k,y2*k); ctx.stroke(); };
-  present.forEach((ok, j) => {
-    if (!ok) return;
-    const x0 = CARD_X[j], x1 = x0 + CARD_W, y0 = CARD_Y, y1 = CARD_Y + CARD_H;
-    for (const x of [x0, x1]) { line(x, y0-1.5, x, y0-6.5); line(x, y1+1.5, x, y1+6.5); }
-    const leftOuter = !(j === 1 && present[0]), rightOuter = !(j === 0 && present[1]);
-    for (const y of [y0, y1]) { if (leftOuter) line(x0-1.5, y, x0-7, y); if (rightOuter) line(x1+1.5, y, x1+7, y); }
-  });
-  ctx.fillStyle = '#9a958c'; ctx.font = `${2.1*k}px ${FONTS.sans}`; ctx.textAlign = 'left';
-  ctx.fillText('打印选「实际大小 / 100%」· 沿灰色细线裁切', (CARD_X[0] + 5)*k, (CARD_Y + CARD_H + 3.6)*k);
+  if (marks) cropMarkSegs(present).forEach(s => line(...s));
+  if (marks) {
+    ctx.fillStyle = '#9a958c'; ctx.font = `${2.1*k}px ${FONTS.sans}`; ctx.textAlign = 'left';
+    ctx.fillText(SHEET_HINT, (CARD_X[0] + 5)*k, (CARD_Y + CARD_H + 3.6)*k);
+  }
   // selected page marker (preview)
   if (opts.preview) present.forEach((ok, j) => {
     if (!ok || sel.page !== si*2 + j) return;
@@ -1076,6 +1107,7 @@ $('moveNext').addEventListener('click', () => movePage(1));
 /* ================= keyboard & paste ================= */
 let nudgeTimer;
 document.addEventListener('keydown', e => {
+  if (exportOpen()) { if (e.key === 'Escape') { e.preventDefault(); closeExport(); } return; }
   const tag = (document.activeElement?.tagName || '').toLowerCase();
   if (editing || tag === 'input' || tag === 'textarea') return;
   const mod = e.metaKey || e.ctrlKey;
@@ -1119,24 +1151,144 @@ async function offerFile(name, blob){
 }
 const stamp = () => { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`; };
 
-$('exportPdf').addEventListener('click', async () => {
-  finishEdit();
+/* ---- 导出选项 ---- */
+const DPI = { 1: 150, 2: 300, 3: 450, 4: 600 };
+let exOpts = { mode: 'flat', scale: 2, fmt: 'jpeg', q: 93, marks: true };
+try { Object.assign(exOpts, JSON.parse(localStorage.getItem('a5-export-opts') || '{}')); } catch (e) {}
+const exportOpen = () => !$('exportDlg').classList.contains('hidden');
+function syncExport(){
+  const seg = (id, v) => document.querySelectorAll(`#${id} button`).forEach(b => b.classList.toggle('on', b.dataset.v === String(v)));
+  seg('exMode', exOpts.mode); seg('exScale', exOpts.scale); seg('exFmt', exOpts.fmt);
+  const dpi = DPI[exOpts.scale], flat = exOpts.mode === 'flat';
+  $('exModeHint').textContent = flat
+    ? '每张 A4 渲染成一整张图片再放进 PDF。任何打印店、任何阅读器看到的都一样，最稳；文字放大看会有像素。'
+    : '文字保留成真正的文字（可选中、放大不糊、文件更小），照片单独嵌入。会弹出打印窗口：目标选「存储为 PDF」，边距选「无」，缩放 100%。';
+  $('exScaleVal').textContent = flat
+    ? `${dpi} dpi · ${Math.round(SHEET_W/25.4*dpi)}×${Math.round(SHEET_H/25.4*dpi)} 像素/张`
+    : `照片 ${dpi} dpi`;
+  $('exQField').classList.toggle('hidden', exOpts.fmt !== 'jpeg');
+  $('exQ').value = exOpts.q; $('exQVal').textContent = exOpts.q + '%';
+  $('exMarks').checked = !!exOpts.marks;
+  $('exGo').textContent = flat ? '导出 PDF' : '打开打印窗口';
+  try { localStorage.setItem('a5-export-opts', JSON.stringify(exOpts)); } catch (e) {}
+}
+const segPick = (id, key, num) => $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) { exOpts[key] = num ? +b.dataset.v : b.dataset.v; syncExport(); } });
+segPick('exMode', 'mode'); segPick('exScale', 'scale', true); segPick('exFmt', 'fmt');
+$('exQ').addEventListener('input', e => { exOpts.q = +e.target.value; syncExport(); });
+$('exMarks').addEventListener('change', e => { exOpts.marks = e.target.checked; syncExport(); });
+const closeExport = () => $('exportDlg').classList.add('hidden');
+$('exCancel').addEventListener('click', closeExport);
+$('exportDlg').addEventListener('click', e => { if (e.target.id === 'exportDlg') closeExport(); });
+$('exportPdf').addEventListener('click', () => { finishEdit(); syncExport(); $('exportDlg').classList.remove('hidden'); $('exGo').focus(); });
+$('exGo').addEventListener('click', async () => {
+  closeExport();
+  const o = { ...exOpts, dpi: DPI[exOpts.scale], quality: exOpts.q / 100 };
+  try { o.mode === 'flat' ? await exportFlat(o) : await exportVector(o); }
+  catch (e) { busy(false); toast('生成失败：' + (e.message || e), 4000); }
+});
+
+/* 压平：每张 A4 画成一张图放进 PDF */
+async function exportFlat(o){
   if (!window.jspdf) { toast('PDF 组件没加载出来，刷新一下再试'); return; }
   busy(true, '正在生成 PDF…'); await new Promise(r => setTimeout(r, 30));
-  try {
-    const pdf = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
-    const k = 300 / 25.4, c = document.createElement('canvas'); c.width = Math.round(SHEET_W*k); c.height = Math.round(SHEET_H*k);
-    const ctx = c.getContext('2d');
-    for (let i = 0; i < sheetCount(); i++) {
-      busy(true, `正在生成 PDF… ${i+1}/${sheetCount()}`); await new Promise(r => setTimeout(r, 0));
-      ctx.setTransform(1,0,0,1,0,0); drawSheet(ctx, k, i, { preview: false });
-      if (i > 0) pdf.addPage('a4', 'landscape');
-      pdf.addImage(c.toDataURL('image/jpeg', 0.93), 'JPEG', 0, 0, SHEET_W, SHEET_H, undefined, 'FAST');
+  const pdf = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
+  const k = o.dpi / 25.4, c = document.createElement('canvas'); c.width = Math.round(SHEET_W*k); c.height = Math.round(SHEET_H*k);
+  const ctx = c.getContext('2d'), png = o.fmt === 'png';
+  for (let i = 0; i < sheetCount(); i++) {
+    busy(true, `正在生成 PDF… ${i+1}/${sheetCount()}`); await new Promise(r => setTimeout(r, 0));
+    ctx.setTransform(1,0,0,1,0,0); drawSheet(ctx, k, i, { preview: false, marks: o.marks });
+    const url = c.toDataURL(png ? 'image/png' : 'image/jpeg', o.quality);
+    if (url.length < 100) throw new Error('清晰度太高，这个浏览器画不出这么大的图，换小一点的倍数');
+    if (i > 0) pdf.addPage('a4', 'landscape');
+    pdf.addImage(url, png ? 'PNG' : 'JPEG', 0, 0, SHEET_W, SHEET_H, undefined, 'FAST');
+  }
+  const blob = pdf.output('blob'); busy(false);
+  await offerFile(`A5手帐-${stamp()}.pdf`, blob);
+}
+
+/* 不压平：每张 A4 生成一张 SVG（文字是 <text>，照片按所选 dpi 裁好后嵌入），交给浏览器打印成 PDF */
+const xesc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const f3 = n => +n.toFixed(3);
+function imageElURL(el, o){
+  const im = imgCache.get(el.img); if (!im) return null;
+  const k = o.dpi / 25.4, c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(el.w*k)); c.height = Math.max(1, Math.round(el.h*k));
+  const x = c.getContext('2d'), alpha = alphaMasks.has(el.img), png = alpha || o.fmt === 'png';
+  if (!alpha) { x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); }
+  x.translate(c.width/2, c.height/2); drawImageEl(x, c.width / el.w, el, false);
+  const url = c.toDataURL(png ? 'image/png' : 'image/jpeg', o.quality);
+  if (url.length < 100) throw new Error('清晰度太高，照片画不出来，换小一点的倍数');
+  return url;
+}
+function textElSVG(el){
+  const lines = wrapLines(el), h = elH(el), s = el.size, gap = s*AUTOSPACE;
+  mctx.font = textFont(el, s*REF);
+  const x0 = el.align === 'center' ? 0 : el.align === 'right' ? el.w/2 : -el.w/2;
+  let out = '';
+  lines.forEach((ln, i) => {
+    const y = -h/2 + s*(el.lh - 1)/2 + s*0.88 + i*s*el.lh;
+    const runs = autoRuns(ln), ws = runs.map(r => mctx.measureText(r).width / REF);
+    const total = ws.reduce((a, b) => a + b, 0) + (runs.length - 1)*gap;
+    let x = x0 - (el.align === 'center' ? total/2 : el.align === 'right' ? total : 0);
+    runs.forEach((r, j) => { if (r.trim()) out += `<text x="${f3(x)}" y="${f3(y)}">${xesc(r)}</text>`; x += ws[j] + gap; });
+  });
+  return `<g style="font:${xesc(textFont(el, s))};white-space:pre;font-kerning:normal" fill="${xesc(el.color)}">${out}</g>`;
+}
+function sheetSVG(si, o){
+  const present = [0,1].map(j => !!state.pages[si*2 + j]);
+  let s = `<svg xmlns="http://www.w3.org/2000/svg" width="${SHEET_W}mm" height="${SHEET_H}mm" viewBox="0 0 ${SHEET_W} ${SHEET_H}">`;
+  s += `<rect width="${SHEET_W}" height="${SHEET_H}" fill="#fff"/>`;
+  if (o.marks) present.forEach((ok, j) => { if (ok) s += `<rect x="${CARD_X[j]}" y="${CARD_Y}" width="${CARD_W}" height="${CARD_H}" fill="none" stroke="#bdbdbd" stroke-width="0.15"/>`; });
+  present.forEach((ok, j) => {
+    if (!ok) return;
+    const id = `clip${si}_${j}`;
+    s += `<clipPath id="${id}"><rect width="${CARD_W}" height="${CARD_H}"/></clipPath>`;
+    s += `<g transform="translate(${CARD_X[j]} ${CARD_Y})" clip-path="url(#${id})">`;
+    for (const el of state.pages[si*2 + j].els) {
+      const c = center(el);
+      s += `<g transform="translate(${f3(c.x)} ${f3(c.y)}) rotate(${f3(el.rot || 0)})">`;
+      if (el.type === 'image') {
+        const url = imageElURL(el, o);
+        s += url ? `<image x="${f3(-el.w/2)}" y="${f3(-el.h/2)}" width="${f3(el.w)}" height="${f3(el.h)}" preserveAspectRatio="none" href="${url}"/>`
+                 : `<rect x="${f3(-el.w/2)}" y="${f3(-el.h/2)}" width="${f3(el.w)}" height="${f3(el.h)}" fill="#eee"/>`;
+      } else s += textElSVG(el);
+      s += '</g>';
     }
-    const blob = pdf.output('blob'); busy(false);
-    await offerFile(`A5手帐-${stamp()}.pdf`, blob);
-  } catch (e) { busy(false); toast('生成失败：' + (e.message || e)); }
-});
+    s += '</g>';
+  });
+  if (o.marks) {
+    s += '<g stroke="#555" stroke-width="0.2">' + cropMarkSegs(present).map(([a,b,c,d]) => `<line x1="${a}" y1="${b}" x2="${c}" y2="${d}"/>`).join('') + '</g>';
+    s += `<text x="${CARD_X[0] + 5}" y="${CARD_Y + CARD_H + 3.6}" fill="#9a958c" style="font:2.1px ${xesc(FONTS.sans)}">${xesc(SHEET_HINT)}</text>`;
+  }
+  return s + '</svg>';
+}
+async function exportVector(o){
+  busy(true, '正在准备打印…'); await new Promise(r => setTimeout(r, 30));
+  const svgs = [];
+  for (let i = 0; i < sheetCount(); i++) {
+    busy(true, `正在准备打印… ${i+1}/${sheetCount()}`); await new Promise(r => setTimeout(r, 0));
+    svgs.push(sheetSVG(i, o));
+  }
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>A5手帐-${stamp()}</title><style>
+@page{size:${SHEET_W}mm ${SHEET_H}mm;margin:0}
+html,body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+svg{display:block;width:${SHEET_W}mm;height:${SHEET_H}mm;break-after:page;page-break-after:always}
+svg:last-child{break-after:auto;page-break-after:auto}
+</style></head><body>${svgs.join('')}</body></html>`;
+  document.querySelectorAll('iframe.print-frame').forEach(f => f.remove());
+  const fr = document.createElement('iframe'); fr.className = 'print-frame';
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.append(fr);
+  const d = fr.contentDocument; d.open(); d.write(html); d.close();
+  // 等字体和内嵌照片解码完，否则打印出来可能缺图
+  try { await d.fonts.ready; } catch (e) {}
+  await Promise.all([...d.querySelectorAll('image')].map(im => new Promise(r => {
+    const t = new Image(); t.onload = t.onerror = r; t.src = im.getAttribute('href'); })));
+  await new Promise(r => setTimeout(r, 200));
+  busy(false);
+  const w = fr.contentWindow; w.focus(); w.print();
+  toast('目标选「存储为 PDF」，边距选「无」', 5000);
+}
 const blobToDataURL = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
 function dataURLToBlob(d){ const [h, b64] = d.split(','); const mime = (h.match(/data:(.*?);/) || [, 'image/jpeg'])[1];
   const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: mime }); }
