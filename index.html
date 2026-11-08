@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A5 手帐排版</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f3f1ec; --panel:#fffdf9; --ink:#2a2826; --muted:#8a857d; --line:#e2ddd4;
+    --accent:#b4532a; --accent-soft:#f6e6dc;
+    --sans:"SF Pro Text","SF Pro",-apple-system,BlinkMacSystemFont,"PingFang SC",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px}
+  button,input,textarea,select{font:inherit;color:inherit}
+  header{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+    padding:10px 16px;background:rgba(243,241,236,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  header h1{font-size:15px;font-weight:600;margin:0 6px 0 0}
+  .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
+  .spacer{flex:1}
+  .status{font-size:12px;color:var(--muted)}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+  .btn:hover:not(:disabled){border-color:#cfc8bc}
+  .btn:disabled{opacity:.4;cursor:default}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .btn.small{padding:4px 9px;font-size:12.5px}
+  .btn.on{background:var(--accent-soft);border-color:#e3b9a3;color:var(--accent);font-weight:600}
+  .btn.danger{color:#a3361b}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+  .seg button{border:0;background:transparent;padding:5px 10px;cursor:pointer}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  main{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;padding:18px 16px 60px;max-width:1500px;margin:0 auto}
+  @media (max-width:900px){main{grid-template-columns:1fr}}
+  #sheets{display:flex;flex-direction:column;gap:22px;min-width:0}
+  .sheet-wrap{position:relative}
+  .sheet-label{font-size:12px;color:var(--muted);margin:0 0 6px 2px}
+  canvas.sheet{width:100%;height:auto;display:block;background:#fff;border-radius:3px;
+    box-shadow:0 1px 2px rgba(0,0,0,.06),0 6px 20px rgba(60,40,20,.08);touch-action:none}
+  canvas.sheet.drop{outline:3px dashed var(--accent);outline-offset:4px}
+  .editor{position:absolute;margin:0;padding:0;border:0;outline:1.5px dashed var(--accent);outline-offset:2px;
+    background:rgba(255,255,255,.9);resize:none;overflow:hidden;white-space:pre-wrap;word-break:break-word;transform-origin:center center;z-index:3}
+  aside{position:sticky;top:64px;align-self:start;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:14px;max-height:calc(100vh - 80px);overflow:auto}
+  @media (max-width:900px){aside{position:static;max-height:none}}
+  aside h2{font-size:13px;margin:0 0 10px;color:var(--muted);font-weight:600}
+  .field{margin-bottom:12px}
+  .field label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px}
+  input[type=range]{width:100%;accent-color:var(--accent);margin:0}
+  .hint{font-size:12px;color:var(--muted);line-height:1.7;margin:0}
+  .hint kbd{font-family:inherit;font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:#fff}
+  .box{border-top:1px solid var(--line);padding-top:12px;margin-top:10px}
+  .actions{display:flex;flex-wrap:wrap;gap:6px}
+  .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .page-head h2{margin:0;font-size:14px;color:var(--ink)}
+  .seg.icon button{padding:7px 11px;display:flex;align-items:center;color:var(--ink)}
+  .seg button:hover:not(:disabled):not(.on){background:#f6f3ee}
+  .seg.mini button{padding:1px 11px;font-size:16px;line-height:1.5}
+  .seg button:disabled{opacity:.3;cursor:default}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+  .grid2 .btn,.btn.full{width:100%}
+  .ratios{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .ratios button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 0;cursor:pointer;font-size:12.5px}
+  .ratios button.on{background:var(--accent-soft);border-color:#e3b9a3;color:var(--accent);font-weight:600}
+  .swatches{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .swatches button{width:22px;height:22px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0}
+  .swatches button.on{box-shadow:0 0 0 2px var(--accent)}
+  .swatches input[type=color]{width:26px;height:24px;border:0;padding:0;background:none;cursor:pointer}
+  #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);opacity:0;
+    background:#2a2826;color:#fff;padding:9px 16px;border-radius:999px;font-size:13px;transition:.25s;pointer-events:none;z-index:20}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #busy{position:fixed;inset:0;background:rgba(243,241,236,.7);display:none;align-items:center;justify-content:center;z-index:30;font-size:14px}
+  #busy.show{display:flex}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <h1>A5 手帐排版</h1>
+  <button class="btn" id="addPage">＋ 新增一页</button>
+  <span class="sep"></span>
+  <button class="btn" id="insImg">插入图片</button>
+  <button class="btn" id="insText">插入文字</button>
+  <span class="sep"></span>
+  <span class="seg icon"><button id="undo" title="撤销（⌘Z）" aria-label="撤销"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"/></svg></button><button id="redo" title="重做（⇧⌘Z）" aria-label="重做"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3.5l3 3-3 3"/><path d="M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9"/></svg></button></span>
+  <span class="spacer"></span>
+  <span class="status" id="saveStatus"></span>
+  <button class="btn" id="openProj">打开项目</button>
+  <button class="btn" id="saveProj">保存项目文件</button>
+  <button class="btn primary" id="exportPdf">导出打印 PDF</button>
+</header>
+
+<main>
+  <div id="sheets"></div>
+  <aside>
+    <!-- page (nothing selected) -->
+    <section id="pPage">
+      <div class="page-head">
+        <h2 id="pageTitle">第 1 页</h2>
+        <span class="seg mini"><button id="movePrev" title="前移一页">‹</button><button id="moveNext" title="后移一页">›</button></span>
+      </div>
+      <div class="grid2">
+        <button class="btn small" id="dupPage">复制本页</button>
+        <button class="btn small danger" id="delPage">删除本页</button>
+      </div>
+      <button class="btn small full" id="insDate">＋ 插入当日日期</button>
+      <div class="box">
+        <h2>使用说明</h2>
+        <p class="hint">
+          <b>插入照片：</b>将图片拖入页面，或使用 <kbd>⌘V</kbd> 粘贴。<br>
+          <b>调整元素：</b>拖动可移动位置；拖动四角可等比缩放；拖动上方圆点可旋转。<br>
+          <b>裁切照片：</b>双击照片进入裁切模式，裁切范围以外的部分以半透明显示。<br>
+          <b>编辑文字：</b>双击文字框即可修改内容。<br>
+          <b>快捷键：</b><kbd>Delete</kbd> 删除；<kbd>⌘D</kbd> 复制；方向键微调位置（按住 <kbd>⇧</kbd> 可加大步长）；<kbd>⌘Z</kbd> 撤销。
+        </p>
+      </div>
+      <div class="box">
+        <h2>打印与裁切</h2>
+        <p class="hint">每张 A4 纸（横向）排版两页，单页成品尺寸为 136 × 194 mm，贴入 A5 手帐后四周将保留少量白边。超出页面范围的内容将被裁去。<br>
+        打印时请选择<b>「实际大小 / 100%」</b>，请勿选择「适合页面」。<br>
+        请沿灰色细线及角线裁切：可使用滑轨裁纸器依次裁切上、下、左、右及中线共五刀，亦可交由打印店代为裁切。</p>
+      </div>
+    </section>
+
+    <!-- image -->
+    <section id="pImage" class="hidden">
+      <h2>照片</h2>
+      <div class="actions" style="margin-bottom:12px">
+        <button class="btn small" id="cropBtn">✂︎ 裁切</button>
+        <button class="btn small" id="fillCard">铺满整页</button>
+        <button class="btn small" id="resetCrop">恢复完整照片</button>
+        <button class="btn small" id="replaceImg">换一张</button>
+      </div>
+      <div class="field"><label>照片在框内放大 <span id="zoomVal"></span></label><input type="range" id="fZoom" min="100" max="400" step="1"></div>
+    </section>
+
+    <!-- crop -->
+    <section id="pCrop" class="hidden">
+      <h2>裁切</h2>
+      <div class="field"><label>比例</label><div class="ratios" id="ratioBtns"></div></div>
+      <div class="field"><button class="btn small" id="flipRatio">横 ⇄ 竖</button></div>
+      <p class="hint">拖裁切框的四个角和四条边调整范围，拖框里面移动位置。框外半透明的部分会被裁掉。<br>
+      <kbd>Enter</kbd> 完成 · <kbd>Esc</kbd> 取消</p>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn small primary" id="cropDone">完成</button>
+        <button class="btn small" id="cropCancel">取消</button>
+        <button class="btn small" id="cropReset">还原完整照片</button>
+      </div>
+    </section>
+
+    <!-- text -->
+    <section id="pText" class="hidden">
+      <h2>文字</h2>
+      <div class="actions" style="margin-bottom:12px"><button class="btn small" id="editText">编辑文字</button></div>
+      <div class="field"><label>字体</label><span class="seg" id="fontSeg"></span></div>
+      <div class="field"><label>字号 <span id="sizeVal"></span></label><input type="range" id="fSize" min="6" max="48" step="0.5"></div>
+      <div class="field"><label>颜色</label><div class="swatches" id="swatches"></div></div>
+      <div class="field" style="display:flex;gap:8px;align-items:center">
+        <button class="btn small" id="boldBtn"><b>B</b> 加粗</button>
+        <button class="btn small" id="italicBtn"><i>I</i> 斜体</button>
+        <span class="seg" id="alignSeg"><button data-a="left">左</button><button data-a="center">中</button><button data-a="right">右</button></span>
+      </div>
+      <div class="field"><label>行距 <span id="lhVal"></span></label><input type="range" id="fLh" min="1" max="2.4" step="0.05"></div>
+    </section>
+
+    <!-- common to elements -->
+    <section id="pCommon" class="hidden">
+      <div class="box">
+        <div class="field"><label>旋转 <span id="rotVal"></span></label><input type="range" id="fRot" min="-180" max="180" step="1"></div>
+        <div class="actions" style="margin-bottom:8px">
+          <button class="btn small" id="toFront">置顶</button>
+          <button class="btn small" id="fwd">上移一层</button>
+          <button class="btn small" id="bwd">下移一层</button>
+          <button class="btn small" id="toBack">置底</button>
+        </div>
+        <div class="actions">
+          <button class="btn small" id="dupEl">复制</button>
+          <button class="btn small danger" id="delEl">删除</button>
+          <button class="btn small" id="deselect">完成</button>
+        </div>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<input type="file" id="imgInput" accept="image/*" multiple class="hidden">
+<input type="file" id="replaceInput" accept="image/*" class="hidden">
+<input type="file" id="projInput" accept=".json,application/json" class="hidden">
+<div id="toast"></div>
+<div id="busy"><span id="busyText">正在处理…</span></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ================= constants (mm) ================= */
+const SHEET_W = 297, SHEET_H = 210;
+const CARD_W = 136, CARD_H = 194, CARD_Y = 8;
+const CARD_X = [SHEET_W/2 - CARD_W, SHEET_W/2];   // 12.5, 148.5 — cards share the middle cut
+const PT = 0.3528;                                // mm per point
+const FONTS = {
+  sans:  '"SF Pro Text","SF Pro Display","SF Pro",-apple-system,BlinkMacSystemFont,system-ui,"PingFang SC",sans-serif',
+  serif: '"Songti SC","Noto Serif SC","Source Han Serif SC","STSong","SimSun",serif',
+  kai:   '"Kaiti SC","STKaiti","KaiTi","Kaiti TC","Noto Serif SC",serif',
+  mono:  '"SF Mono",ui-monospace,Menlo,"PingFang SC",monospace'
+};
+const FONT_LABEL = { sans:'SF + 苹方', serif:'宋体', kai:'楷体', mono:'等宽' };
+const COLORS = ['#2a2826','#6b665e','#b4532a','#3d5a80','#4f7a52','#a23b55'];
+const WEEK = ['周日','周一','周二','周三','周四','周五','周六'];
+
+/* ================= state ================= */
+const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+const newPage = () => ({ id: uid(), els: [] });
+let state = { v: 2, pages: [newPage(), newPage()] };
+let sel = { page: 0, el: null };
+let editing = null;          // id of text being edited
+let cropMode = false, cropKey = 'free', cropFlip = false, cropLock = null, cropStart = null;
+const CROP_PRESETS = [['free','自由'],['lock','锁定当前'],['orig','原图比例'],['1:1','1:1'],['4:3','4:3'],['3:2','3:2'],['16:9','16:9']];
+let guides = null;           // {page, xs:[], ys:[]}
+const imgCache = new Map(), imgBlobs = new Map();
+
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rad = d => d * Math.PI / 180;
+const rot = (p, deg) => { const c = Math.cos(rad(deg)), s = Math.sin(rad(deg)); return { x: p.x*c - p.y*s, y: p.x*s + p.y*c }; };
+function toast(msg, ms = 2400){ const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms); }
+function busy(on, text){ $('busy').classList.toggle('show', on); if (text) $('busyText').textContent = text; }
+const curPage = () => state.pages[sel.page];
+const curEl = () => { const p = curPage(); return p && sel.el ? p.els.find(e => e.id === sel.el) : null; };
+const sheetOf = pi => Math.floor(pi / 2);
+
+/* ================= storage ================= */
+const store = {
+  db: null,
+  async open(){
+    try { this.db = await new Promise((res, rej) => {
+      const r = indexedDB.open('a5-journal-layout', 1);
+      r.onupgradeneeded = () => { r.result.createObjectStore('kv'); r.result.createObjectStore('img'); };
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+    catch (e) { this.db = null; }
+    return !!this.db;
+  },
+  req(s, mode, fn){ return new Promise((res, rej) => { try {
+    const tx = this.db.transaction(s, mode); const r = fn(tx.objectStore(s));
+    tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+  } catch (e) { rej(e); } }); },
+  get(s,k){ return this.db ? this.req(s,'readonly', o => o.get(k)) : Promise.resolve(); },
+  put(s,k,v){ return this.db ? this.req(s,'readwrite', o => o.put(v,k)) : Promise.resolve(); },
+  del(s,k){ return this.db ? this.req(s,'readwrite', o => o.delete(k)) : Promise.resolve(); },
+  keys(s){ return this.db ? this.req(s,'readonly', o => o.getAllKeys()) : Promise.resolve([]); }
+};
+let saveTimer;
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    if (!store.db) return;
+    try { await store.put('kv', 'state-v2', JSON.stringify(state)); $('saveStatus').textContent = ''; }
+    catch (e) { $('saveStatus').textContent = '自动保存失败，记得保存项目文件'; }
+  }, 400);
+}
+
+/* ================= history ================= */
+let hist = [], hIdx = -1;
+function commit(){
+  const s = JSON.stringify(state);
+  if (s === hist[hIdx]) return;
+  hist = hist.slice(0, hIdx + 1); hist.push(s);
+  if (hist.length > 120) hist.shift();
+  hIdx = hist.length - 1; updateUndo(); scheduleSave();
+}
+function restore(i){
+  hIdx = i; state = JSON.parse(hist[i]);
+  if (sel.page >= state.pages.length) sel.page = state.pages.length - 1;
+  if (!curEl()) sel.el = null;
+  cropMode = false; rebuildSheets(); syncPanel(); updateUndo(); scheduleSave();
+}
+function undo(){ if (editing) return; if (hIdx > 0) restore(hIdx - 1); }
+function redo(){ if (editing) return; if (hIdx < hist.length - 1) restore(hIdx + 1); }
+function updateUndo(){ $('undo').disabled = hIdx <= 0; $('redo').disabled = hIdx >= hist.length - 1; }
+
+/* ================= images ================= */
+function loadImg(blob){ return new Promise((res, rej) => {
+  const url = URL.createObjectURL(blob), im = new Image();
+  im.onload = () => res(im); im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('decode')); }; im.src = url; }); }
+async function importImage(file){
+  const im = await loadImg(file);
+  const s = Math.min(1, 2400 / Math.max(im.naturalWidth, im.naturalHeight));
+  const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth*s); c.height = Math.round(im.naturalHeight*s);
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height);
+  URL.revokeObjectURL(im.src);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+  const id = uid(); imgBlobs.set(id, blob); imgCache.set(id, await loadImg(blob));
+  store.put('img', id, blob).catch(() => {});
+  return id;
+}
+async function ensureImage(id){
+  if (imgCache.has(id)) return;
+  const b = await store.get('img', id);
+  if (b) { imgBlobs.set(id, b); imgCache.set(id, await loadImg(b)); }
+}
+function usedImageIds(){ const s = new Set(); state.pages.forEach(p => p.els.forEach(e => e.type === 'image' && s.add(e.img))); return s; }
+
+/* ================= text measuring (fixed reference scale so preview == print) ================= */
+const REF = 10, mctx = document.createElement('canvas').getContext('2d');
+const NO_START = '，。、！？；：）」』】》,.!?;:)…—~～%';
+const textFont = (el, px) => `${el.italic ? 'italic ' : ''}${el.bold ? 700 : 400} ${px}px ${FONTS[el.font] || FONTS.sans}`;
+const wrapCache = new Map();
+function wrapLines(el){
+  const key = [el.text, el.font, el.bold, el.italic, el.size, el.w].join('\u0001');
+  if (wrapCache.has(key)) return wrapCache.get(key);
+  mctx.font = textFont(el, el.size * REF);
+  const maxW = el.w * REF, W = s => mctx.measureText(s).width, out = [];
+  for (const para of (el.text || '').replace(/\r/g, '').split('\n')) {
+    if (para === '') { out.push(''); continue; }
+    const tokens = para.match(/[A-Za-z0-9À-ɏ'’\-_.@#/]+|\s+|[\s\S]/gu) || [];
+    let line = '';
+    for (const t of tokens) {
+      const test = line + t;
+      if (W(test) <= maxW) { line = test; continue; }
+      if (NO_START.includes(t) && line) { line = test; continue; }
+      if (/^\s+$/.test(t)) { out.push(line); line = ''; continue; }
+      if (line) { out.push(line.replace(/\s+$/, '')); line = ''; }
+      if (W(t) <= maxW) { line = t; continue; }
+      for (const ch of t) { if (W(line + ch) > maxW && line) { out.push(line); line = ''; } line += ch; }
+    }
+    out.push(line.replace(/\s+$/, ''));
+  }
+  if (wrapCache.size > 400) wrapCache.clear();
+  wrapCache.set(key, out);
+  return out;
+}
+const elH = el => el.type === 'text' ? Math.max(1, wrapLines(el).length) * el.size * el.lh : el.h;
+const center = el => ({ x: el.x + el.w/2, y: el.y + elH(el)/2 });
+function aabb(el){
+  const h = elH(el), c = center(el);
+  const pts = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b]) => rot({ x:a*el.w/2, y:b*h/2 }, el.rot || 0));
+  const xs = pts.map(p => p.x + c.x), ys = pts.map(p => p.y + c.y);
+  return { l: Math.min(...xs), r: Math.max(...xs), t: Math.min(...ys), b: Math.max(...ys) };
+}
+
+/* ================= drawing ================= */
+function drawImageEl(ctx, k, el, ghost){
+  const im = imgCache.get(el.img);
+  if (!im) { ctx.fillStyle = '#eee'; ctx.fillRect(-el.w/2*k, -el.h/2*k, el.w*k, el.h*k); return; }
+  const dx = (-el.w/2 + el.ox)*k, dy = (-el.h/2 + el.oy)*k, dw = im.naturalWidth*el.s*k, dh = im.naturalHeight*el.s*k;
+  if (ghost) { ctx.save(); ctx.globalAlpha = 0.35; ctx.drawImage(im, dx, dy, dw, dh); ctx.restore(); }
+  ctx.save(); ctx.beginPath(); ctx.rect(-el.w/2*k, -el.h/2*k, el.w*k, el.h*k); ctx.clip();
+  ctx.drawImage(im, dx, dy, dw, dh); ctx.restore();
+}
+function drawTextEl(ctx, k, el){
+  const lines = wrapLines(el), h = elH(el);
+  ctx.fillStyle = el.color; ctx.font = textFont(el, el.size*k); ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = el.align;
+  const x0 = el.align === 'center' ? 0 : el.align === 'right' ? el.w/2 : -el.w/2;
+  lines.forEach((ln, i) => ctx.fillText(ln, x0*k, (-h/2 + el.size*(el.lh - 1)/2 + el.size*0.88 + i*el.size*el.lh)*k));
+  ctx.textAlign = 'left';
+}
+function drawCard(ctx, k, j, pi, opts){
+  const p = state.pages[pi], ox = CARD_X[j], oy = CARD_Y;
+  ctx.save(); ctx.translate(ox*k, oy*k);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, CARD_W*k, CARD_H*k); ctx.clip();
+  for (const el of p.els) {
+    if (opts.preview && el.id === editing) continue;
+    const c = center(el), ghost = opts.preview && cropMode && sel.page === pi && sel.el === el.id && el.type === 'image';
+    ctx.save(); ctx.translate(c.x*k, c.y*k); ctx.rotate(rad(el.rot || 0));
+    if (el.type === 'image') drawImageEl(ctx, k, el, false); else drawTextEl(ctx, k, el);
+    ctx.restore();
+    if (ghost) { ctx.restore(); ctx.save(); ctx.translate(c.x*k, c.y*k); ctx.rotate(rad(el.rot || 0)); drawImageEl(ctx, k, el, true);
+      ctx.restore(); ctx.save(); ctx.beginPath(); ctx.rect(0, 0, CARD_W*k, CARD_H*k); ctx.clip(); }
+  }
+  ctx.restore();
+  if (opts.preview && !p.els.length) {
+    ctx.fillStyle = '#c4beb4'; ctx.font = `${3.2*k}px ${FONTS.sans}`; ctx.textAlign = 'center';
+    ctx.fillText('把照片拖进来', CARD_W/2*k, (CARD_H/2 - 2)*k);
+    ctx.font = `${2.6*k}px ${FONTS.sans}`; ctx.fillText('或点上方「插入图片」「插入文字」', CARD_W/2*k, (CARD_H/2 + 3.5)*k);
+    ctx.textAlign = 'left';
+  }
+  if (opts.preview && guides && guides.page === pi) {
+    ctx.strokeStyle = '#e0457b'; ctx.lineWidth = 1 * opts.dpr; ctx.setLineDash([4*opts.dpr, 3*opts.dpr]);
+    guides.xs.forEach(x => { ctx.beginPath(); ctx.moveTo(x*k, 0); ctx.lineTo(x*k, CARD_H*k); ctx.stroke(); });
+    guides.ys.forEach(y => { ctx.beginPath(); ctx.moveTo(0, y*k); ctx.lineTo(CARD_W*k, y*k); ctx.stroke(); });
+    ctx.setLineDash([]);
+  }
+  if (opts.preview && sel.page === pi && sel.el && sel.el !== editing) {
+    const el = p.els.find(e => e.id === sel.el);
+    if (el) drawSelection(ctx, k, el, opts);
+  }
+  ctx.restore();
+}
+function handleList(el, hsMm, crop){
+  const h = elH(el), w = el.w, list = [];
+  const corners = [[-1,-1],[1,-1],[1,1],[-1,1]];
+  const sides = crop ? [[0,-1],[1,0],[0,1],[-1,0]] : el.type === 'text' ? [[1,0],[-1,0]] : [];
+  for (const [hx,hy] of corners) list.push({ hx, hy, x: hx*w/2, y: hy*h/2 });
+  for (const [hx,hy] of sides) list.push({ hx, hy, x: hx*w/2, y: hy*h/2 });
+  if (!crop) list.push({ rotate: true, x: 0, y: -h/2 - hsMm*2.6 });
+  return list;
+}
+function drawSelection(ctx, k, el, opts){
+  const c = center(el), h = elH(el), dpr = opts.dpr, hs = 9 / opts.cssK; // handle size in mm
+  ctx.save(); ctx.translate(c.x*k, c.y*k); ctx.rotate(rad(el.rot || 0));
+  if (cropMode && el.type === 'image') {
+    const L = -el.w/2*k, T = -h/2*k, W = el.w*k, H = h*k;
+    ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 1*dpr;
+    for (const f of [1/3, 2/3]) { ctx.beginPath(); ctx.moveTo(L + W*f, T); ctx.lineTo(L + W*f, T + H); ctx.moveTo(L, T + H*f); ctx.lineTo(L + W, T + H*f); ctx.stroke(); }
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3*dpr; ctx.strokeRect(L, T, W, H);
+    ctx.strokeStyle = '#2a2826'; ctx.lineWidth = 1.2*dpr; ctx.strokeRect(L, T, W, H);
+    for (const hd of handleList(el, hs, true)) {
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#2a2826'; ctx.lineWidth = 1.2*dpr; ctx.beginPath();
+      ctx.rect((hd.x - hs/2)*k, (hd.y - hs/2)*k, hs*k, hs*k); ctx.fill(); ctx.stroke();
+    }
+    ctx.restore(); return;
+  }
+  ctx.strokeStyle = '#b4532a'; ctx.lineWidth = 1.5*dpr;
+  ctx.strokeRect(-el.w/2*k, -h/2*k, el.w*k, h*k);
+  {
+    const hl = handleList(el, hs), rh = hl[hl.length - 1];
+    ctx.beginPath(); ctx.moveTo(0, -h/2*k); ctx.lineTo(0, rh.y*k); ctx.stroke();
+    for (const hd of hl) {
+      ctx.fillStyle = '#fff'; ctx.beginPath();
+      if (hd.rotate) ctx.arc(hd.x*k, hd.y*k, hs*0.55*k, 0, Math.PI*2);
+      else ctx.rect((hd.x - hs/2)*k, (hd.y - hs/2)*k, hs*k, hs*k);
+      ctx.fill(); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+function drawSheet(ctx, k, si, opts){
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, SHEET_W*k, SHEET_H*k);
+  const present = [0,1].map(j => !!state.pages[si*2 + j]);
+  // cut lines under content
+  ctx.strokeStyle = '#bdbdbd'; ctx.lineWidth = Math.max(0.15*k, 0.5);
+  present.forEach((ok, j) => ok && ctx.strokeRect(CARD_X[j]*k, CARD_Y*k, CARD_W*k, CARD_H*k));
+  present.forEach((ok, j) => ok && drawCard(ctx, k, j, si*2 + j, opts));
+  // crop marks
+  ctx.strokeStyle = '#555'; ctx.lineWidth = Math.max(0.2*k, 0.6);
+  const line = (x1,y1,x2,y2) => { ctx.beginPath(); ctx.moveTo(x1*k,y1*k); ctx.lineTo(x2*k,y2*k); ctx.stroke(); };
+  present.forEach((ok, j) => {
+    if (!ok) return;
+    const x0 = CARD_X[j], x1 = x0 + CARD_W, y0 = CARD_Y, y1 = CARD_Y + CARD_H;
+    for (const x of [x0, x1]) { line(x, y0-1.5, x, y0-6.5); line(x, y1+1.5, x, y1+6.5); }
+    const leftOuter = !(j === 1 && present[0]), rightOuter = !(j === 0 && present[1]);
+    for (const y of [y0, y1]) { if (leftOuter) line(x0-1.5, y, x0-7, y); if (rightOuter) line(x1+1.5, y, x1+7, y); }
+  });
+  ctx.fillStyle = '#9a958c'; ctx.font = `${2.1*k}px ${FONTS.sans}`; ctx.textAlign = 'left';
+  ctx.fillText('打印选「实际大小 / 100%」· 沿灰色细线裁切', (CARD_X[0] + 5)*k, (CARD_Y + CARD_H + 3.6)*k);
+  // selected page marker (preview)
+  if (opts.preview) present.forEach((ok, j) => {
+    if (!ok || sel.page !== si*2 + j) return;
+    ctx.strokeStyle = 'rgba(180,83,42,.7)'; ctx.lineWidth = 1.5*opts.dpr; ctx.setLineDash([6*opts.dpr, 4*opts.dpr]);
+    ctx.strokeRect(CARD_X[j]*k, CARD_Y*k, CARD_W*k, CARD_H*k); ctx.setLineDash([]);
+  });
+}
+
+/* ================= preview canvases ================= */
+const sheetsEl = $('sheets'); let canvases = [];
+const sheetCount = () => Math.max(1, Math.ceil(state.pages.length / 2));
+function rebuildSheets(){
+  finishEdit(true);
+  sheetsEl.innerHTML = ''; canvases = [];
+  for (let i = 0; i < sheetCount(); i++) {
+    const wrap = document.createElement('div'); wrap.className = 'sheet-wrap';
+    const lab = document.createElement('div'); lab.className = 'sheet-label';
+    lab.textContent = `第 ${i+1} 张 A4 · 第 ${i*2+1}${state.pages[i*2+1] ? '–' + (i*2+2) : ''} 页`;
+    const c = document.createElement('canvas'); c.className = 'sheet';
+    wrap.append(lab, c); sheetsEl.append(wrap); canvases.push(c); bindCanvas(c, i);
+  }
+  sizeCanvases();
+}
+let DPR = 1;
+function sizeCanvases(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+  canvases.forEach(c => { const w = c.clientWidth || sheetsEl.clientWidth; c.width = Math.round(w*DPR); c.height = Math.round(w*DPR*SHEET_H/SHEET_W); });
+  renderAll(); positionEditor();
+}
+function renderSheet(i){
+  const c = canvases[i]; if (!c) return;
+  const ctx = c.getContext('2d'); ctx.setTransform(1,0,0,1,0,0);
+  drawSheet(ctx, c.width / SHEET_W, i, { preview: true, dpr: DPR, cssK: c.clientWidth / SHEET_W });
+}
+function renderAll(){ canvases.forEach((_, i) => renderSheet(i)); }
+const renderPage = pi => renderSheet(sheetOf(pi));
+new ResizeObserver(() => sizeCanvases()).observe(sheetsEl);
+
+/* ================= hit testing ================= */
+function toMm(c, ev){ const r = c.getBoundingClientRect(); return { x:(ev.clientX - r.left)/r.width*SHEET_W, y:(ev.clientY - r.top)/r.height*SHEET_H, cssK: r.width/SHEET_W }; }
+function cardAt(si, m){
+  for (let j = 0; j < 2; j++) {
+    const pi = si*2 + j; if (!state.pages[pi]) continue;
+    const lx = m.x - CARD_X[j], ly = m.y - CARD_Y;
+    if (lx >= -3 && ly >= -3 && lx <= CARD_W + 3 && ly <= CARD_H + 3) return { pi, j, pt: { x: lx, y: ly } };
+  }
+  return null;
+}
+const toLocal = (el, pt) => { const c = center(el); return rot({ x: pt.x - c.x, y: pt.y - c.y }, -(el.rot || 0)); };
+function hitHandle(el, pt, cssK, crop){
+  const hs = 9 / cssK, tol = 7 / cssK, lp = toLocal(el, pt);
+  for (const hd of handleList(el, hs, crop)) if (Math.abs(lp.x - hd.x) <= tol && Math.abs(lp.y - hd.y) <= tol) return hd;
+  return null;
+}
+function hitEl(page, pt){
+  for (let i = page.els.length - 1; i >= 0; i--) {
+    const el = page.els[i], lp = toLocal(el, pt), h = elH(el);
+    if (Math.abs(lp.x) <= el.w/2 + 0.5 && Math.abs(lp.y) <= h/2 + 0.5) return el;
+  }
+  return null;
+}
+const CURSOR = { '-1,-1':'nwse-resize','1,1':'nwse-resize','1,-1':'nesw-resize','-1,1':'nesw-resize','0,-1':'ns-resize','0,1':'ns-resize','1,0':'ew-resize','-1,0':'ew-resize' };
+
+/* ================= snapping ================= */
+function snapMove(page, el, nx, ny, thr){
+  const tmp = { ...el, x: nx, y: ny }, b = aabb(tmp);
+  const cx = (b.l + b.r)/2, cy = (b.t + b.b)/2;
+  const tx = [0, CARD_W/2, CARD_W, 6, CARD_W - 6], ty = [0, CARD_H/2, CARD_H, 6, CARD_H - 6];
+  for (const o of page.els) { if (o.id === el.id) continue; const ob = aabb(o); tx.push(ob.l, (ob.l+ob.r)/2, ob.r); ty.push(ob.t, (ob.t+ob.b)/2, ob.b); }
+  let best = null;
+  for (const v of [b.l, cx, b.r]) for (const t of tx) { const d = t - v; if (Math.abs(d) < thr && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, t }; }
+  let bestY = null;
+  for (const v of [b.t, cy, b.b]) for (const t of ty) { const d = t - v; if (Math.abs(d) < thr && (!bestY || Math.abs(d) < Math.abs(bestY.d))) bestY = { d, t }; }
+  return { x: nx + (best ? best.d : 0), y: ny + (bestY ? bestY.d : 0), xs: best ? [best.t] : [], ys: bestY ? [bestY.t] : [] };
+}
+
+/* ================= element operations ================= */
+const MIN = 4;
+function coverMin(el){ const im = imgCache.get(el.img); return im ? Math.max(el.w/im.naturalWidth, el.h/im.naturalHeight) : el.s; }
+function clampPan(el){
+  const im = imgCache.get(el.img); if (!im) return;
+  el.ox = clamp(el.ox, el.w - im.naturalWidth*el.s, 0); el.oy = clamp(el.oy, el.h - im.naturalHeight*el.s, 0);
+}
+function setWorldCenter(el, c0, ncLocal, w, h){
+  const wc = rot(ncLocal, el.rot || 0);
+  el.x = c0.x + wc.x - w/2; el.y = c0.y + wc.y - h/2;
+}
+function doResize(d, pt){
+  const el = d.el, e0 = d.e0, p = rot({ x: pt.x - d.c0.x, y: pt.y - d.c0.y }, -(e0.rot || 0));
+  const hx = d.hd.hx, hy = d.hd.hy, w0 = e0.w, h0 = d.h0;
+  if (el.type === 'image') {
+    if (hx && hy) {
+      const a = { x: -hx*w0/2, y: -hy*h0/2 }, dv = { x: hx*w0, y: hy*h0 };
+      let f = ((p.x - a.x)*dv.x + (p.y - a.y)*dv.y) / (dv.x*dv.x + dv.y*dv.y);
+      f = Math.max(f, MIN / Math.min(w0, h0));
+      el.w = w0*f; el.h = h0*f; el.s = e0.s*f; el.ox = e0.ox*f; el.oy = e0.oy*f;
+      setWorldCenter(el, d.c0, { x: a.x + hx*el.w/2, y: a.y + hy*el.h/2 }, el.w, el.h);
+    } else {
+      const im = imgCache.get(el.img); if (!im) return;
+      const cL = -w0/2 + e0.ox, cR = cL + im.naturalWidth*e0.s, cT = -h0/2 + e0.oy, cB = cT + im.naturalHeight*e0.s;
+      let L = -w0/2, R = w0/2, T = -h0/2, B = h0/2;
+      if (hx === 1) R = clamp(p.x, L + MIN, cR); if (hx === -1) L = clamp(p.x, cL, R - MIN);
+      if (hy === 1) B = clamp(p.y, T + MIN, cB); if (hy === -1) T = clamp(p.y, cT, B - MIN);
+      el.w = R - L; el.h = B - T; el.ox = cL - L; el.oy = cT - T;
+      setWorldCenter(el, d.c0, { x: (L + R)/2, y: (T + B)/2 }, el.w, el.h);
+    }
+  } else {
+    if (hx && hy) {
+      const a = { x: -hx*w0/2, y: -hy*h0/2 }, dv = { x: hx*w0, y: hy*h0 };
+      let f = ((p.x - a.x)*dv.x + (p.y - a.y)*dv.y) / (dv.x*dv.x + dv.y*dv.y);
+      f = clamp(f, 6 / w0, 400);
+      el.size = clamp(e0.size*f, 5*PT, 72*PT); f = el.size / e0.size; el.w = Math.max(6, w0*f);
+      const h = elH(el);
+      setWorldCenter(el, d.c0, { x: a.x + hx*el.w/2, y: a.y + hy*h/2 }, el.w, h);
+    } else {
+      let L = -w0/2, R = w0/2;
+      if (hx === 1) R = Math.max(p.x, L + 8); else L = Math.min(p.x, R - 8);
+      el.w = R - L; const h = elH(el);
+      setWorldCenter(el, d.c0, { x: (L + R)/2, y: -h0/2 + h/2 }, el.w, h);
+    }
+  }
+}
+function contentBox(e){ const im = imgCache.get(e.img); const L = -e.w/2 + e.ox, T = -e.h/2 + e.oy;
+  return im ? { L, T, R: L + im.naturalWidth*e.s, B: T + im.naturalHeight*e.s } : { L, T, R: L + e.w, B: T + e.h }; }
+function cropRatio(e){
+  if (cropKey === 'free') return null;
+  if (cropKey === 'lock') return cropLock || e.w/e.h;
+  if (cropKey === 'orig') { const im = imgCache.get(e.img); return im ? im.naturalWidth/im.naturalHeight : null; }
+  const [a, b] = cropKey.split(':').map(Number); return cropFlip ? b/a : a/b;
+}
+function applyFrame(el, c0, cb, L, T, R, B){
+  el.w = R - L; el.h = B - T; el.ox = cb.L - L; el.oy = cb.T - T;
+  setWorldCenter(el, c0, { x: (L + R)/2, y: (T + B)/2 }, el.w, el.h);
+}
+function cropResize(d, p){
+  const e0 = d.e0, cb = contentBox(e0), r = cropRatio(e0), hx = d.hd.hx, hy = d.hd.hy;
+  const L0 = -e0.w/2, R0 = e0.w/2, T0 = -e0.h/2, B0 = e0.h/2;
+  let L = L0, R = R0, T = T0, B = B0;
+  if (!r) {
+    if (hx === 1) R = clamp(p.x, L + MIN, cb.R); if (hx === -1) L = clamp(p.x, cb.L, R - MIN);
+    if (hy === 1) B = clamp(p.y, T + MIN, cb.B); if (hy === -1) T = clamp(p.y, cb.T, B - MIN);
+  } else if (hx && hy) {
+    const ax = hx > 0 ? L0 : R0, ay = hy > 0 ? T0 : B0;
+    let w = Math.max(MIN, (p.x - ax)*hx), h = Math.max(MIN, (p.y - ay)*hy);
+    if (w/h > r) h = w/r; else w = h*r;
+    const aw = hx > 0 ? cb.R - ax : ax - cb.L, ah = hy > 0 ? cb.B - ay : ay - cb.T;
+    if (w > aw) { w = aw; h = w/r; } if (h > ah) { h = ah; w = h*r; }
+    if (hx > 0) { L = ax; R = ax + w; } else { R = ax; L = ax - w; }
+    if (hy > 0) { T = ay; B = ay + h; } else { B = ay; T = ay - h; }
+  } else if (hx) {
+    const ax = hx > 0 ? L0 : R0, cy = (T0 + B0)/2;
+    let w = Math.max(MIN, (p.x - ax)*hx);
+    w = Math.min(w, hx > 0 ? cb.R - ax : ax - cb.L, 2*Math.min(cy - cb.T, cb.B - cy)*r);
+    const h = w/r; if (hx > 0) { L = ax; R = ax + w; } else { R = ax; L = ax - w; } T = cy - h/2; B = cy + h/2;
+  } else {
+    const ay = hy > 0 ? T0 : B0, cx = (L0 + R0)/2;
+    let h = Math.max(MIN, (p.y - ay)*hy);
+    h = Math.min(h, hy > 0 ? cb.B - ay : ay - cb.T, 2*Math.min(cx - cb.L, cb.R - cx)/r);
+    const w = h*r; if (hy > 0) { T = ay; B = ay + h; } else { B = ay; T = ay - h; } L = cx - w/2; R = cx + w/2;
+  }
+  applyFrame(d.el, d.c0, cb, L, T, R, B);
+}
+function cropMove(d, dl){
+  const e0 = d.e0, cb = contentBox(e0), w = e0.w, h = e0.h;
+  const L = clamp(-w/2 + dl.x, cb.L, cb.R - w), T = clamp(-h/2 + dl.y, cb.T, cb.B - h);
+  applyFrame(d.el, d.c0, cb, L, T, L + w, T + h);
+}
+function applyPreset(){
+  const el = curEl(); if (!el || el.type !== 'image') return;
+  const r = cropRatio(el); if (!r) return;
+  const cb = contentBox(el), area = el.w*el.h;
+  let w = Math.sqrt(area*r), h = Math.sqrt(area/r);
+  if (w > cb.R - cb.L) { w = cb.R - cb.L; h = w/r; }
+  if (h > cb.B - cb.T) { h = cb.B - cb.T; w = h*r; }
+  const cx = clamp(0, cb.L + w/2, cb.R - w/2), cy = clamp(0, cb.T + h/2, cb.B - h/2);
+  applyFrame(el, center(el), cb, cx - w/2, cy - h/2, cx + w/2, cy + h/2);
+  renderPage(sel.page); commit();
+}
+function enterCrop(){
+  const el = curEl(); if (!el || el.type !== 'image') return;
+  cropMode = true; cropStart = JSON.parse(JSON.stringify(el));
+  if (cropKey === 'lock') cropLock = el.w/el.h;
+  renderAll(); syncPanel();
+}
+function finishCrop(){ if (!cropMode) return; cropMode = false; cropStart = null; renderAll(); syncPanel(); commit(); }
+function cancelCrop(){
+  if (!cropMode) return; const el = curEl();
+  if (el && cropStart && el.id === cropStart.id) Object.assign(el, cropStart);
+  cropMode = false; cropStart = null; renderAll(); syncPanel(); commit();
+}
+function addImageEl(pi, imgId, at){
+  const im = imgCache.get(imgId); if (!im) return null;
+  const p = state.pages[pi];
+  let w = 80, h = w * im.naturalHeight / im.naturalWidth;
+  if (h > 100) { h = 100; w = h * im.naturalWidth / im.naturalHeight; }
+  const n = p.els.length % 6;
+  const cx = at ? at.x : CARD_W/2 + n*4 - 10, cy = at ? at.y : CARD_H/2 + n*4 - 10;
+  const el = { id: uid(), type: 'image', img: imgId, x: cx - w/2, y: cy - h/2, w, h, rot: 0, s: w / im.naturalWidth, ox: 0, oy: 0 };
+  p.els.push(el); return el;
+}
+function addTextEl(pi, text, opts = {}){
+  const p = state.pages[pi];
+  const el = { id: uid(), type: 'text', text, x: 0, y: 0, w: opts.w || 70, rot: 0, size: opts.size || 10*PT,
+    color: opts.color || '#2a2826', bold: false, align: 'left', font: opts.font || 'sans', lh: 1.55 };
+  el.x = opts.x ?? (CARD_W - el.w)/2; el.y = opts.y ?? (CARD_H/2 - 6 + (p.els.length % 6)*4);
+  p.els.push(el); return el;
+}
+
+/* ================= canvas interaction ================= */
+function bindCanvas(c, si){
+  let drag = null;
+  c.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0) return;
+    const m = toMm(c, ev);
+    if (cropMode) {
+      const se = curEl();
+      if (se && sheetOf(sel.page) === si) {
+        const j = sel.page % 2, pt = { x: m.x - CARD_X[j], y: m.y - CARD_Y };
+        const hd = hitHandle(se, pt, m.cssK, true), lp = toLocal(se, pt), cb = contentBox(se);
+        if (hd || (lp.x >= cb.L && lp.x <= cb.R && lp.y >= cb.T && lp.y <= cb.B)) {
+          const c0 = center(se);
+          drag = { mode: hd ? 'crop' : 'cropmove', el: se, hd, pi: sel.page, j, start: pt, e0: JSON.parse(JSON.stringify(se)), c0, h0: se.h, moved: false, cssK: m.cssK };
+          c.setPointerCapture(ev.pointerId); return;
+        }
+      }
+      finishCrop();
+    }
+    const hit = cardAt(si, m);
+    if (!hit) { if (sel.el) { sel.el = null; renderAll(); syncPanel(); } return; }
+    const page = state.pages[hit.pi];
+    let el = null, hd = null;
+    if (sel.page === hit.pi && sel.el) { const se = curEl(); if (se) { hd = hitHandle(se, hit.pt, m.cssK, false); if (hd) el = se; } }
+    if (!el) el = hitEl(page, hit.pt);
+    if (!el) { sel = { page: hit.pi, el: null }; renderAll(); syncPanel(); return; }
+    sel = { page: hit.pi, el: el.id };
+    const mode = hd ? (hd.rotate ? 'rotate' : 'resize') : 'move';
+    const c0 = center(el);
+    drag = { mode, el, hd, pi: hit.pi, j: hit.j, start: hit.pt, e0: JSON.parse(JSON.stringify(el)), c0, h0: elH(el), moved: false, cssK: m.cssK,
+             a0: Math.atan2(hit.pt.y - c0.y, hit.pt.x - c0.x) };
+    c.setPointerCapture(ev.pointerId);
+    renderAll(); syncPanel();
+  });
+  c.addEventListener('pointermove', ev => {
+    const m = toMm(c, ev);
+    if (!drag) {
+      let cur = 'default';
+      if (cropMode) {
+        const se = curEl();
+        if (se && sheetOf(sel.page) === si) {
+          const pt = { x: m.x - CARD_X[sel.page % 2], y: m.y - CARD_Y }, hd = hitHandle(se, pt, m.cssK, true);
+          if (hd) cur = CURSOR[`${hd.hx},${hd.hy}`];
+          else { const lp = toLocal(se, pt), cb = contentBox(se); if (lp.x >= cb.L && lp.x <= cb.R && lp.y >= cb.T && lp.y <= cb.B) cur = 'move'; }
+        }
+        c.style.cursor = cur; return;
+      }
+      const hit = cardAt(si, m);
+      if (hit) {
+        const se = sel.page === hit.pi ? curEl() : null, hd = se ? hitHandle(se, hit.pt, m.cssK, false) : null;
+        if (hd) cur = hd.rotate ? 'grab' : CURSOR[`${hd.hx},${hd.hy}`];
+        else if (hitEl(state.pages[hit.pi], hit.pt)) cur = 'move';
+      }
+      c.style.cursor = cur; return;
+    }
+    const pt = { x: m.x - CARD_X[drag.j], y: m.y - CARD_Y };
+    const dx = pt.x - drag.start.x, dy = pt.y - drag.start.y;
+    if (!drag.moved && Math.hypot(dx, dy) * drag.cssK < 3) return;
+    drag.moved = true;
+    const el = drag.el, e0 = drag.e0;
+    if (drag.mode === 'move') {
+      const s = ev.altKey ? { x: e0.x + dx, y: e0.y + dy, xs: [], ys: [] } : snapMove(state.pages[drag.pi], el, e0.x + dx, e0.y + dy, 7 / drag.cssK);
+      el.x = s.x; el.y = s.y; guides = (s.xs.length || s.ys.length) ? { page: drag.pi, xs: s.xs, ys: s.ys } : null;
+    } else if (drag.mode === 'crop') {
+      cropResize(drag, rot({ x: pt.x - drag.c0.x, y: pt.y - drag.c0.y }, -(e0.rot || 0)));
+    } else if (drag.mode === 'cropmove') {
+      cropMove(drag, rot({ x: dx, y: dy }, -(e0.rot || 0)));
+    } else if (drag.mode === 'resize') {
+      doResize(drag, pt);
+    } else if (drag.mode === 'rotate') {
+      const a = Math.atan2(pt.y - drag.c0.y, pt.x - drag.c0.x);
+      let r = (e0.rot || 0) + (a - drag.a0) * 180 / Math.PI;
+      r = ((r + 540) % 360) - 180;
+      if (ev.shiftKey) r = Math.round(r / 15) * 15;
+      else for (const t of [-180, -90, 0, 90, 180]) if (Math.abs(r - t) < 3) r = t;
+      el.rot = r === -180 ? 180 : r;
+    }
+    cancelAnimationFrame(drag.raf); drag.raf = requestAnimationFrame(() => { renderPage(drag ? drag.pi : sel.page); syncPanelValues(); });
+  });
+  const end = () => { if (!drag) return; const moved = drag.moved, pi = drag.pi; drag = null; guides = null; renderPage(pi); if (moved) commit(); };
+  c.addEventListener('pointerup', end);
+  c.addEventListener('pointercancel', end);
+  c.addEventListener('dblclick', ev => {
+    if (cropMode) { finishCrop(); return; }
+    const m = toMm(c, ev), hit = cardAt(si, m); if (!hit) return;
+    const el = hitEl(state.pages[hit.pi], hit.pt); if (!el) return;
+    sel = { page: hit.pi, el: el.id };
+    if (el.type === 'text') startEdit(el); else enterCrop();
+  });
+  c.addEventListener('dragover', ev => { ev.preventDefault(); c.classList.add('drop'); });
+  c.addEventListener('dragleave', () => c.classList.remove('drop'));
+  c.addEventListener('drop', async ev => {
+    ev.preventDefault(); c.classList.remove('drop');
+    const files = [...(ev.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name));
+    const hit = cardAt(si, toMm(c, ev)); if (!files.length || !hit) return;
+    sel = { page: hit.pi, el: null };
+    await insertFiles(files, hit.pi, hit.pt);
+  });
+}
+async function insertFiles(files, pi, at){
+  busy(true, '正在读取照片…');
+  let failed = 0, last = null;
+  for (let i = 0; i < files.length; i++) {
+    try { const id = await importImage(files[i]);
+      last = addImageEl(pi, id, at ? { x: at.x + i*5, y: at.y + i*5 } : null); }
+    catch (e) { failed++; }
+  }
+  busy(false);
+  if (failed) toast(`有 ${failed} 张读不出来（可能是 HEIC），先导出成 JPG 再试`, 3600);
+  if (last) { sel = { page: pi, el: last.id }; cropMode = false; }
+  renderAll(); syncPanel(); commit();
+}
+
+/* ================= text editing overlay ================= */
+let editorEl = null;
+function startEdit(el, isNew){
+  finishEdit(true);
+  editing = el.id; cropMode = false;
+  const ta = document.createElement('textarea'); ta.className = 'editor'; ta.value = el.text; ta.spellcheck = false;
+  editorEl = ta; canvases[sheetOf(sel.page)].parentElement.append(ta);
+  positionEditor();
+  ta.addEventListener('input', () => { el.text = ta.value; positionEditor(); });
+  ta.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); finishEdit(); } e.stopPropagation(); });
+  ta.addEventListener('blur', () => finishEdit());
+  renderAll(); syncPanel();
+  ta.focus(); if (isNew) ta.select(); else ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+function positionEditor(){
+  if (!editorEl || !editing) return;
+  const p = curPage(), el = p && p.els.find(e => e.id === editing); if (!el) return;
+  const c = canvases[sheetOf(sel.page)]; const j = sel.page % 2, k = c.clientWidth / SHEET_W;
+  const h = elH(el), ce = center(el);
+  const ta = editorEl;
+  Object.assign(ta.style, {
+    left: (c.offsetLeft + (CARD_X[j] + ce.x - el.w/2)*k) + 'px', top: (c.offsetTop + (CARD_Y + ce.y - h/2)*k) + 'px',
+    width: (el.w*k + 2) + 'px', height: (Math.max(h, el.size*el.lh)*k + 2) + 'px',
+    fontFamily: FONTS[el.font], fontSize: (el.size*k) + 'px', fontWeight: el.bold ? 700 : 400, fontStyle: el.italic ? 'italic' : 'normal',
+    lineHeight: String(el.lh), color: el.color, textAlign: el.align, transform: `rotate(${el.rot || 0}deg)`
+  });
+}
+function finishEdit(silent){
+  if (!editing) return;
+  const id = editing; editing = null;
+  const ta = editorEl; editorEl = null; if (ta) { ta.remove(); }
+  for (const p of state.pages) { const i = p.els.findIndex(e => e.id === id);
+    if (i >= 0 && !p.els[i].text.trim()) { p.els.splice(i, 1); if (sel.el === id) sel.el = null; } }
+  if (!silent) { renderAll(); syncPanel(); }
+  commit();
+}
+
+/* ================= panel ================= */
+$('fontSeg').innerHTML = Object.keys(FONTS).map(f => `<button data-f="${f}">${FONT_LABEL[f]}</button>`).join('');
+$('swatches').innerHTML = COLORS.map(c => `<button data-c="${c}" style="background:${c}" title="${c}"></button>`).join('') + '<input type="color" id="fColor" title="自定义颜色">';
+function syncPanel(){
+  const el = curEl();
+  $('pPage').classList.toggle('hidden', !!el);
+  const inCrop = !!(cropMode && el && el.type === 'image');
+  $('pImage').classList.toggle('hidden', !(el && el.type === 'image') || inCrop);
+  $('pCrop').classList.toggle('hidden', !inCrop);
+  $('pText').classList.toggle('hidden', !(el && el.type === 'text'));
+  $('pCommon').classList.toggle('hidden', !el || inCrop);
+  document.querySelectorAll('#ratioBtns button').forEach(b => b.classList.toggle('on', b.dataset.r === cropKey));
+  $('flipRatio').disabled = !cropKey.includes(':') || cropKey === '1:1';
+  $('pageTitle').textContent = `第 ${sel.page + 1} 页`;
+  $('movePrev').disabled = sel.page === 0; $('moveNext').disabled = sel.page >= state.pages.length - 1;
+  if (el && el.type === 'text') {
+    document.querySelectorAll('#fontSeg button').forEach(b => b.classList.toggle('on', b.dataset.f === el.font));
+    document.querySelectorAll('#swatches button').forEach(b => b.classList.toggle('on', b.dataset.c.toLowerCase() === el.color.toLowerCase()));
+    $('fColor').value = el.color;
+    $('boldBtn').classList.toggle('on', !!el.bold);
+    $('italicBtn').classList.toggle('on', !!el.italic);
+    document.querySelectorAll('#alignSeg button').forEach(b => b.classList.toggle('on', b.dataset.a === el.align));
+    $('editText').textContent = editing === el.id ? '编辑中…' : '编辑文字';
+  }
+  syncPanelValues();
+}
+function syncPanelValues(){
+  const el = curEl(); if (!el) return;
+  $('fRot').value = Math.round(el.rot || 0); $('rotVal').textContent = Math.round(el.rot || 0) + '°';
+  if (el.type === 'text') { const pt = el.size / PT; $('fSize').value = pt; $('sizeVal').textContent = (Math.round(pt*2)/2) + ' pt'; $('fLh').value = el.lh; $('lhVal').textContent = el.lh.toFixed(2); }
+  if (el.type === 'image') { const z = el.s / coverMin(el); $('fZoom').value = Math.round(z*100); $('zoomVal').textContent = Math.round(z*100) + '%'; }
+}
+function editEl(fn, doCommit = true){
+  const el = curEl(); if (!el) return;
+  fn(el); renderPage(sel.page); positionEditor(); syncPanelValues(); if (doCommit) commit();
+}
+// ranges: live update on input, history on change
+const liveRange = (id, fn) => { $(id).addEventListener('input', e => editEl(el => fn(el, +e.target.value), false)); $(id).addEventListener('change', () => commit()); };
+liveRange('fRot', (el, v) => {
+  el.rot = v;
+});
+liveRange('fSize', (el, v) => { el.size = v * PT; });
+liveRange('fLh', (el, v) => { el.lh = v; });
+liveRange('fZoom', (el, v) => {
+  const im = imgCache.get(el.img); if (!im) return;
+  const u = (el.w/2 - el.ox) / el.s, w = (el.h/2 - el.oy) / el.s;
+  el.s = coverMin(el) * v / 100; el.ox = el.w/2 - u*el.s; el.oy = el.h/2 - w*el.s; clampPan(el);
+});
+$('fontSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { editEl(el => el.font = b.dataset.f); syncPanel(); } });
+$('swatches').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { editEl(el => el.color = b.dataset.c); syncPanel(); } });
+$('swatches').addEventListener('input', e => { if (e.target.id === 'fColor') editEl(el => el.color = e.target.value, false); });
+$('swatches').addEventListener('change', e => { if (e.target.id === 'fColor') { commit(); syncPanel(); } });
+$('boldBtn').addEventListener('click', () => { editEl(el => el.bold = !el.bold); syncPanel(); });
+$('italicBtn').addEventListener('click', () => { editEl(el => el.italic = !el.italic); syncPanel(); });
+$('alignSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { editEl(el => el.align = b.dataset.a); syncPanel(); } });
+$('editText').addEventListener('click', () => { const el = curEl(); if (el) startEdit(el); });
+$('cropBtn').addEventListener('click', enterCrop);
+$('ratioBtns').innerHTML = CROP_PRESETS.map(([k, t]) => `<button data-r="${k}">${t}</button>`).join('');
+$('ratioBtns').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; const el = curEl(); if (!el) return;
+  cropKey = b.dataset.r; if (cropKey === 'lock') cropLock = el.w/el.h;
+  syncPanel(); if (cropKey !== 'free' && cropKey !== 'lock') applyPreset();
+});
+$('flipRatio').addEventListener('click', () => { cropFlip = !cropFlip; applyPreset(); });
+$('cropDone').addEventListener('click', finishCrop);
+$('cropCancel').addEventListener('click', cancelCrop);
+$('cropReset').addEventListener('click', () => { const el = curEl(); if (!el) return; resetToFull(el); renderPage(sel.page); commit(); });
+$('fillCard').addEventListener('click', () => editEl(el => {
+  const im = imgCache.get(el.img); if (!im) return;
+  el.rot = 0; el.x = 0; el.y = 0; el.w = CARD_W; el.h = CARD_H;
+  el.s = Math.max(CARD_W/im.naturalWidth, CARD_H/im.naturalHeight);
+  el.ox = (CARD_W - im.naturalWidth*el.s)/2; el.oy = (CARD_H - im.naturalHeight*el.s)/2;
+}));
+function resetToFull(el){
+  const im = imgCache.get(el.img); if (!im) return;
+  const c = center(el), cb = contentBox(el), w = cb.R - cb.L, h = cb.B - cb.T;
+  const wc = rot({ x: (cb.L + cb.R)/2, y: (cb.T + cb.B)/2 }, el.rot || 0);
+  el.w = w; el.h = h; el.ox = 0; el.oy = 0; el.x = c.x + wc.x - w/2; el.y = c.y + wc.y - h/2;
+}
+$('resetCrop').addEventListener('click', () => editEl(el => resetToFull(el)));
+$('replaceImg').addEventListener('click', () => $('replaceInput').click());
+$('replaceInput').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; const el = curEl(); if (!f || !el) return;
+  busy(true, '正在读取照片…');
+  try { const id = await importImage(f); const im = imgCache.get(id);
+    editEl(x => { x.img = id; x.s = Math.max(x.w/im.naturalWidth, x.h/im.naturalHeight);
+      x.ox = (x.w - im.naturalWidth*x.s)/2; x.oy = (x.h - im.naturalHeight*x.s)/2; }); }
+  catch (err) { toast('这张读不出来（可能是 HEIC），先导出成 JPG 再试', 3600); }
+  busy(false);
+});
+function reorder(kind){
+  const p = curPage(), i = p.els.findIndex(e => e.id === sel.el); if (i < 0) return;
+  const [el] = p.els.splice(i, 1);
+  const ni = kind === 'front' ? p.els.length : kind === 'back' ? 0 : kind === 'fwd' ? Math.min(p.els.length, i + 1) : Math.max(0, i - 1);
+  p.els.splice(ni, 0, el); renderPage(sel.page); commit();
+}
+$('toFront').addEventListener('click', () => reorder('front'));
+$('toBack').addEventListener('click', () => reorder('back'));
+$('fwd').addEventListener('click', () => reorder('fwd'));
+$('bwd').addEventListener('click', () => reorder('bwd'));
+function dupEl(){
+  const el = curEl(); if (!el) return;
+  const c = JSON.parse(JSON.stringify(el)); c.id = uid(); c.x += 5; c.y += 5;
+  curPage().els.push(c); sel.el = c.id; renderPage(sel.page); syncPanel(); commit();
+}
+function delEl(){
+  const p = curPage(), i = p.els.findIndex(e => e.id === sel.el); if (i < 0) return;
+  p.els.splice(i, 1); sel.el = null; cropMode = false; renderPage(sel.page); syncPanel(); commit();
+}
+$('dupEl').addEventListener('click', dupEl);
+$('delEl').addEventListener('click', delEl);
+$('deselect').addEventListener('click', () => { sel.el = null; cropMode = false; renderAll(); syncPanel(); });
+
+/* ================= top bar & page actions ================= */
+$('addPage').addEventListener('click', () => {
+  state.pages.push(newPage()); sel = { page: state.pages.length - 1, el: null };
+  rebuildSheets(); syncPanel(); commit();
+  requestAnimationFrame(() => canvases[sheetOf(sel.page)]?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+});
+$('insImg').addEventListener('click', () => $('imgInput').click());
+$('imgInput').addEventListener('change', async e => { const files = [...e.target.files]; e.target.value = ''; if (files.length) await insertFiles(files, sel.page, null); });
+$('insText').addEventListener('click', () => {
+  const el = addTextEl(sel.page, '双击修改文字'); sel.el = el.id; renderPage(sel.page); commit(); startEdit(el, true);
+});
+$('insDate').addEventListener('click', () => {
+  const d = new Date(), s = `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}  ${WEEK[d.getDay()]}`;
+  const el = addTextEl(sel.page, s, { font: 'mono', size: 8*PT, color: '#6b665e', w: 45, x: 8, y: 8 });
+  sel.el = el.id; renderPage(sel.page); syncPanel(); commit();
+});
+$('undo').addEventListener('click', undo);
+$('redo').addEventListener('click', redo);
+$('dupPage').addEventListener('click', () => {
+  const c = JSON.parse(JSON.stringify(curPage())); c.id = uid(); c.els.forEach(e => e.id = uid());
+  state.pages.splice(sel.page + 1, 0, c); sel = { page: sel.page + 1, el: null };
+  rebuildSheets(); syncPanel(); commit(); toast('已复制这一页');
+});
+let delArmed = 0;
+$('delPage').addEventListener('click', () => {
+  const b = $('delPage');
+  if (Date.now() - delArmed > 2500) { delArmed = Date.now(); b.textContent = '再次点击以确认'; setTimeout(() => b.textContent = '删除本页', 2500); return; }
+  delArmed = 0; b.textContent = '删除本页';
+  state.pages.splice(sel.page, 1); if (!state.pages.length) state.pages.push(newPage());
+  sel = { page: Math.min(sel.page, state.pages.length - 1), el: null };
+  rebuildSheets(); syncPanel(); commit();
+});
+function movePage(d){
+  const i = sel.page, j = i + d; if (j < 0 || j >= state.pages.length) return;
+  [state.pages[i], state.pages[j]] = [state.pages[j], state.pages[i]];
+  sel = { page: j, el: null }; rebuildSheets(); syncPanel(); commit();
+}
+$('movePrev').addEventListener('click', () => movePage(-1));
+$('moveNext').addEventListener('click', () => movePage(1));
+
+/* ================= keyboard & paste ================= */
+let nudgeTimer;
+document.addEventListener('keydown', e => {
+  const tag = (document.activeElement?.tagName || '').toLowerCase();
+  if (editing || tag === 'input' || tag === 'textarea') return;
+  const mod = e.metaKey || e.ctrlKey;
+  if (cropMode) {
+    if (e.key === 'Enter') { e.preventDefault(); finishCrop(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelCrop(); }
+    else if (e.key === 'Delete' || e.key === 'Backspace' || e.key.startsWith('Arrow')) e.preventDefault();
+    return;
+  }
+  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+  const el = curEl(); if (!el) return;
+  if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); dupEl(); return; }
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); delEl(); return; }
+  if (e.key === 'Escape') { sel.el = null; renderAll(); syncPanel(); return; }
+  if (e.key === 'Enter' && el.type === 'text') { e.preventDefault(); startEdit(el); return; }
+  const step = e.shiftKey ? 5 : 0.5, mv = { ArrowLeft:[-step,0], ArrowRight:[step,0], ArrowUp:[0,-step], ArrowDown:[0,step] }[e.key];
+  if (mv) { e.preventDefault(); el.x += mv[0]; el.y += mv[1]; renderPage(sel.page); clearTimeout(nudgeTimer); nudgeTimer = setTimeout(commit, 400); }
+});
+document.addEventListener('paste', async e => {
+  const tag = (document.activeElement?.tagName || '').toLowerCase();
+  if (editing || tag === 'input' || tag === 'textarea') return;
+  const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+  if (files.length) { e.preventDefault(); await insertFiles(files, sel.page, null); return; }
+  const t = e.clipboardData?.getData('text/plain');
+  if (t && t.trim()) { e.preventDefault(); const el = addTextEl(sel.page, t.trim()); sel.el = el.id; renderPage(sel.page); syncPanel(); commit(); }
+});
+
+/* ================= files out (downloads capability; plain link when opened locally) ================= */
+let dlP = null;
+const getDownloads = () => dlP || (dlP = (window.claude && typeof window.claude.use === 'function') ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null));
+getDownloads();
+async function offerFile(name, blob){
+  const dl = await getDownloads();
+  if (dl) {
+    try { await dl.save({ filename: name, data: blob }); toast('已保存：' + name); return; }
+    catch (e) { if (e && e.code === 'declined') { toast('已取消'); return; } if (e && e.code === 'rate_limited') { toast('稍等一下再试'); return; } }
+  }
+  try { const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); }
+  catch (e) { toast('这里没法下载，可以在 claude.ai 打开这个页面再试', 4000); }
+}
+const stamp = () => { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`; };
+
+$('exportPdf').addEventListener('click', async () => {
+  finishEdit();
+  if (!window.jspdf) { toast('PDF 组件没加载出来，刷新一下再试'); return; }
+  busy(true, '正在生成 PDF…'); await new Promise(r => setTimeout(r, 30));
+  try {
+    const pdf = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
+    const k = 300 / 25.4, c = document.createElement('canvas'); c.width = Math.round(SHEET_W*k); c.height = Math.round(SHEET_H*k);
+    const ctx = c.getContext('2d');
+    for (let i = 0; i < sheetCount(); i++) {
+      busy(true, `正在生成 PDF… ${i+1}/${sheetCount()}`); await new Promise(r => setTimeout(r, 0));
+      ctx.setTransform(1,0,0,1,0,0); drawSheet(ctx, k, i, { preview: false });
+      if (i > 0) pdf.addPage('a4', 'landscape');
+      pdf.addImage(c.toDataURL('image/jpeg', 0.93), 'JPEG', 0, 0, SHEET_W, SHEET_H, undefined, 'FAST');
+    }
+    const blob = pdf.output('blob'); busy(false);
+    await offerFile(`A5手帐-${stamp()}.pdf`, blob);
+  } catch (e) { busy(false); toast('生成失败：' + (e.message || e)); }
+});
+const blobToDataURL = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
+function dataURLToBlob(d){ const [h, b64] = d.split(','); const mime = (h.match(/data:(.*?);/) || [, 'image/jpeg'])[1];
+  const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: mime }); }
+$('saveProj').addEventListener('click', async () => {
+  finishEdit(); busy(true, '正在打包…');
+  try {
+    const images = {}; for (const id of usedImageIds()) { const b = imgBlobs.get(id); if (b) images[id] = await blobToDataURL(b); }
+    const json = JSON.stringify({ app: 'a5-journal-canvas', v: 2, state, images }); busy(false);
+    await offerFile(`A5手帐项目-${stamp()}.json`, new Blob([json], { type: 'application/json' }));
+  } catch (e) { busy(false); toast('打包失败'); }
+});
+$('openProj').addEventListener('click', () => $('projInput').click());
+$('projInput').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  busy(true, '正在打开…');
+  try {
+    const data = JSON.parse(await f.text());
+    if (!data.state || data.state.v !== 2 || !Array.isArray(data.state.pages)) throw new Error('bad');
+    for (const [id, d] of Object.entries(data.images || {})) { const b = dataURLToBlob(d); imgBlobs.set(id, b); imgCache.set(id, await loadImg(b)); store.put('img', id, b).catch(() => {}); }
+    state = data.state; sel = { page: 0, el: null }; cropMode = false;
+    rebuildSheets(); syncPanel(); commit(); toast('已打开项目');
+  } catch (err) { toast('这个文件打不开'); }
+  busy(false);
+});
+
+/* ================= boot ================= */
+(async () => {
+  const ok = await store.open();
+  if (ok) {
+    try {
+      const saved = await store.get('kv', 'state-v2');
+      if (saved) { const s = JSON.parse(saved); if (s && s.v === 2 && Array.isArray(s.pages) && s.pages.length) state = s; }
+      const used = usedImageIds();
+      for (const id of used) await ensureImage(id).catch(() => {});
+    } catch (e) { $('saveStatus').textContent = '自动保存不可用，记得保存项目文件'; }
+  } else $('saveStatus').textContent = '这里不能自动保存，记得点「保存项目文件」';
+  rebuildSheets(); syncPanel(); commit(); updateUndo();
+})();
+})();
+</script>
+</body>
+</html>
