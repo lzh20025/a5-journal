@@ -155,6 +155,12 @@
       <h2>文字</h2>
       <div class="actions" style="margin-bottom:12px"><button class="btn small" id="editText">编辑文字</button></div>
       <div class="field"><label>字体</label><span class="seg" id="fontSeg"></span></div>
+      <div class="field"><label>本机字体 <span id="localCount"></span></label>
+        <div style="display:flex;gap:6px">
+          <select id="localFont" style="flex:1;min-width:0;border:1px solid var(--line);border-radius:7px;background:#fff;padding:4px 6px"><option value="">（未使用）</option></select>
+          <button class="btn small" id="loadFonts">读取本机字体</button>
+        </div>
+      </div>
       <div class="field"><label>字号 <span id="sizeVal"></span></label><input type="range" id="fSize" min="6" max="48" step="0.5"></div>
       <div class="field"><label>颜色</label><div class="swatches" id="swatches"></div></div>
       <div class="field" style="display:flex;gap:8px;align-items:center">
@@ -328,7 +334,10 @@ function usedImageIds(){ const s = new Set(); state.pages.forEach(p => p.els.for
 /* ================= text measuring (fixed reference scale so preview == print) ================= */
 const REF = 10, mctx = document.createElement('canvas').getContext('2d');
 const NO_START = '，。、！？；：）」』】》,.!?;:)…—~～%';
-const textFont = (el, px) => `${el.italic ? 'italic ' : ''}${el.bold ? 700 : 400} ${px}px ${FONTS[el.font] || FONTS.sans}`;
+/* el.font 是预设 key，或 "local:字体族名"（本机字体，缺失时回落到 SF + 苹方） */
+const LOCAL = 'local:';
+const fontStack = f => (f && f.startsWith(LOCAL)) ? `"${f.slice(LOCAL.length).replace(/["\\]/g, '')}", ${FONTS.sans}` : (FONTS[f] || FONTS.sans);
+const textFont = (el, px) => `${el.italic ? 'italic ' : ''}${el.bold ? 700 : 400} ${px}px ${fontStack(el.font)}`;
 /* 中英文之间自动加 1/8 em 的小间隔（同 CSS text-autospace） */
 const AUTOSPACE = 0.125;
 const IS_CJK = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
@@ -845,7 +854,7 @@ function positionEditor(){
   Object.assign(ta.style, {
     left: (c.offsetLeft + (CARD_X[j] + ce.x - el.w/2)*k) + 'px', top: (c.offsetTop + (CARD_Y + ce.y - h/2)*k) + 'px',
     width: (el.w*k + 2) + 'px', height: (Math.max(h, el.size*el.lh)*k + 2) + 'px',
-    fontFamily: FONTS[el.font], fontSize: (el.size*k) + 'px', fontWeight: el.bold ? 700 : 400, fontStyle: el.italic ? 'italic' : 'normal',
+    fontFamily: fontStack(el.font), fontSize: (el.size*k) + 'px', fontWeight: el.bold ? 700 : 400, fontStyle: el.italic ? 'italic' : 'normal',
     lineHeight: String(el.lh), color: el.color, textAlign: el.align, transform: `rotate(${el.rot || 0}deg)`
   });
 }
@@ -876,6 +885,7 @@ function syncPanel(){
   $('movePrev').disabled = sel.page === 0; $('moveNext').disabled = sel.page >= state.pages.length - 1;
   if (el && el.type === 'text') {
     document.querySelectorAll('#fontSeg button').forEach(b => b.classList.toggle('on', b.dataset.f === el.font));
+    syncLocalFont(el);
     document.querySelectorAll('#swatches button').forEach(b => b.classList.toggle('on', b.dataset.c.toLowerCase() === el.color.toLowerCase()));
     $('fColor').value = el.color;
     $('boldBtn').classList.toggle('on', !!el.bold);
@@ -908,6 +918,57 @@ liveRange('fZoom', (el, v) => {
   el.s = coverMin(el) * v / 100; el.ox = el.w/2 - u*el.s; el.oy = el.h/2 - w*el.s; clampPan(el);
 });
 $('fontSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { editEl(el => el.font = b.dataset.f); syncPanel(); } });
+/* ---- 本机字体：Chrome / Edge 用 Local Font Access API 列出全部；其他浏览器可手动输入字体名 ---- */
+let localFamilies = [];
+function fillLocalFonts(){
+  const cur = $('localFont').value;
+  $('localFont').innerHTML = '<option value="">（未使用）</option>' +
+    localFamilies.map(f => `<option value="${LOCAL}${f.replace(/"/g, '&quot;')}">${f.replace(/</g, '&lt;')}</option>`).join('');
+  $('localFont').value = cur;
+  $('localCount').textContent = localFamilies.length ? `${localFamilies.length} 款` : '';
+}
+function syncLocalFont(el){
+  const v = el.font && el.font.startsWith(LOCAL) ? el.font : '';
+  const s = $('localFont');
+  if (v && ![...s.options].some(o => o.value === v)) {   // 工程里用了、但列表里还没有的字体
+    const o = document.createElement('option'); o.value = v; o.textContent = v.slice(LOCAL.length); s.append(o);
+  }
+  s.value = v;
+}
+async function loadLocalFonts(quiet){
+  if (!window.queryLocalFonts) return false;
+  try {
+    const list = await window.queryLocalFonts();
+    localFamilies = [...new Set(list.map(f => f.family))].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+    fillLocalFonts(); const el = curEl(); if (el && el.type === 'text') syncLocalFont(el);
+    if (!quiet) toast(`读到 ${localFamilies.length} 款本机字体`);
+    return true;
+  } catch (err) {
+    if (!quiet) toast('没拿到字体权限，可以在地址栏左侧的网站设置里允许「字体」');
+    return false;
+  }
+}
+// 粗略判断某字体是否装在本机：和两种不同的回落字体比宽度
+function fontInstalled(name){
+  const probe = 'mmmmmmmmmmlli永和ABC123', q = name.replace(/["\\]/g, '');
+  return ['monospace', 'serif'].some(fb => {
+    mctx.font = `40px ${fb}`; const a = mctx.measureText(probe).width;
+    mctx.font = `40px "${q}", ${fb}`; return mctx.measureText(probe).width !== a;
+  });
+}
+$('loadFonts').addEventListener('click', async () => {
+  if (await loadLocalFonts(false) || window.queryLocalFonts) return;
+  const name = (prompt('这个浏览器不支持列出本机字体（Chrome / Edge 可以）。\n直接输入字体名称，例如：霞鹜文楷、Georgia') || '').trim();
+  if (!name) return;
+  if (!fontInstalled(name)) { toast(`本机好像没有「${name}」这款字体`); return; }
+  if (!localFamilies.includes(name)) { localFamilies.push(name); fillLocalFonts(); }
+  editEl(el => el.font = LOCAL + name); syncPanel();
+});
+$('localFont').addEventListener('change', e => { const v = e.target.value; editEl(el => el.font = v || 'sans'); syncPanel(); });
+// 之前已授权过就静默读取
+if (window.queryLocalFonts && navigator.permissions) {
+  navigator.permissions.query({ name: 'local-fonts' }).then(p => { if (p.state === 'granted') loadLocalFonts(true); }).catch(() => {});
+}
 $('swatches').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { editEl(el => el.color = b.dataset.c); syncPanel(); } });
 $('swatches').addEventListener('input', e => { if (e.target.id === 'fColor') editEl(el => el.color = e.target.value, false); });
 $('swatches').addEventListener('change', e => { if (e.target.id === 'fColor') { commit(); syncPanel(); } });
